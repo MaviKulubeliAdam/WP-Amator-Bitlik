@@ -55,7 +55,10 @@ async function initApp() {
   populateFilterOptions();
   applyFiltersAndRender();
 
-  document.getElementById('searchInput').addEventListener('input', handleSearch);
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', handleSearch);
+  }
 
   setupDropdowns();
   setupModal();
