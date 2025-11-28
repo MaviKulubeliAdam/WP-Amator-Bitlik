@@ -369,7 +369,7 @@ class AmateurTelsizIlanVitrini {
     }
 }
     
-    private function process_listing_images($listing_id, $images_data) {
+    private function process_listing_images($listing_id, $images_data, $start_index = 0) {
         $listing_dir = ATIV_UPLOAD_DIR . $listing_id;
         if (!file_exists($listing_dir)) {
             wp_mkdir_p($listing_dir);
@@ -389,7 +389,8 @@ class AmateurTelsizIlanVitrini {
         
         foreach ($images_array as $index => $image) {
             if (isset($image['data'])) {
-                $file_name = $this->save_base64_image($listing_id, $image['data'], $index + 1);
+                // Yeni görselleri mevcut sayının devamından numaralandır
+                $file_name = $this->save_base64_image($listing_id, $image['data'], $start_index + $index + 1);
                 if ($file_name) {
                     $image_files[] = $file_name;
                 }
@@ -426,6 +427,27 @@ class AmateurTelsizIlanVitrini {
         return false;
     }
     
+    private function extract_image_index($filename) {
+        // Dosya formatı: {id}P{numara}.{ext}
+        if (preg_match('/P(\d{2})\./', $filename, $m)) {
+            return intval($m[1]);
+        }
+        return 0;
+    }
+    
+    private function get_max_image_index($image_files) {
+        $max = 0;
+        foreach ($image_files as $name) {
+            $idx = $this->extract_image_index($name);
+            if ($idx > $max) $max = $idx;
+        }
+        return $max;
+    }
+    
+    private function is_base64_image_string($data) {
+        return is_string($data) && preg_match('/^data:image\/(\w+);base64,/', $data);
+    }
+    
     private function update_listing() {
     // Ek güvenlik kontrolü
     if (!is_user_logged_in()) {
@@ -443,7 +465,7 @@ class AmateurTelsizIlanVitrini {
     $user_id = get_current_user_id();
     
     // İlanın kullanıcıya ait olup olmadığını kontrol et
-    $existing_listing = $wpdb->get_row($wpdb->prepare("SELECT user_id, images FROM $table_name WHERE id = %d", $id), ARRAY_A);
+    $existing_listing = $wpdb->get_row($wpdb->prepare("SELECT user_id, images, featured_image_index, emoji FROM $table_name WHERE id = %d", $id), ARRAY_A);
     
     if (!$existing_listing) {
         wp_send_json_error('İlan bulunamadı');
@@ -457,41 +479,119 @@ class AmateurTelsizIlanVitrini {
     
     // Mevcut görselleri al
     $current_images = $existing_listing['images'] ? json_decode($existing_listing['images'], true) : array();
-    
-    // Yeni görselleri işle
-    $image_files = array();
-    if (isset($data['images']) && !empty($data['images'])) {
-        $image_files = $this->process_listing_images($id, $data['images']);
+
+    // Güncellenecek alanları kademeli olarak topla (sadece gönderilen alanlar)
+    $update_data = array();
+    $field_map_text = [
+        'title' => 'title',
+        'category' => 'category',
+        'brand' => 'brand',
+        'model' => 'model',
+        'condition' => 'condition',
+        'currency' => 'currency',
+        'callsign' => 'callsign',
+        'seller_name' => 'seller_name',
+        'location' => 'location',
+        'seller_phone' => 'seller_phone'
+    ];
+    foreach ($field_map_text as $post_key => $db_key) {
+        if (array_key_exists($post_key, $data)) {
+            if ($post_key === 'currency') {
+                $update_data[$db_key] = sanitize_text_field($data[$post_key]);
+            } else {
+                $update_data[$db_key] = sanitize_text_field($data[$post_key]);
+            }
+        }
     }
-    
-    // Eski görselleri sil (eğer yeni görseller yüklenmişse)
-    if (!empty($image_files) && !empty($current_images)) {
-        $this->delete_listing_images($id, $current_images);
+    if (array_key_exists('seller_email', $data)) {
+        $update_data['seller_email'] = sanitize_email($data['seller_email']);
     }
-    
-    $emoji = empty($image_files) ? '📻' : null;
-    $featuredImageIndex = intval($data['featuredImageIndex'] ?? 0);
-    $currency = sanitize_text_field($data['currency'] ?? 'TRY');
-    
-    $update_data = array(
-        'title' => sanitize_text_field($data['title']),
-        'category' => sanitize_text_field($data['category']),
-        'brand' => sanitize_text_field($data['brand']),
-        'model' => sanitize_text_field($data['model']),
-        'condition' => sanitize_text_field($data['condition']),
-        'price' => floatval($data['price']),
-        'currency' => $currency,
-        'description' => sanitize_textarea_field($data['description']),
-        'images' => !empty($image_files) ? json_encode($image_files) : null,
-        'featured_image_index' => $featuredImageIndex,
-        'emoji' => $emoji,
-        'callsign' => sanitize_text_field($data['callsign']),
-        'seller_name' => sanitize_text_field($data['seller_name']),
-        'location' => sanitize_text_field($data['location']),
-        'seller_email' => sanitize_email($data['seller_email']),
-        'seller_phone' => sanitize_text_field($data['seller_phone'])
-    );
-    
+    if (array_key_exists('price', $data)) {
+        $update_data['price'] = floatval($data['price']);
+    }
+    if (array_key_exists('description', $data)) {
+        $update_data['description'] = sanitize_textarea_field($data['description']);
+    }
+
+    // Görseller: istemciden gelen listeyi nihai kaynak kabul et
+    if (array_key_exists('images', $data)) {
+        $final_images = array();
+        $new_images_payload = array();
+
+        // images alanı JSON ise decode et
+        $images_input = null;
+        if (is_string($data['images'])) {
+            $images_input = json_decode(stripslashes($data['images']), true);
+        } else {
+            $images_input = $data['images'];
+        }
+
+        if (is_array($images_input)) {
+            // 1) Önce mevcut korunacak (eski) dosya adlarını sırayla ekle
+            $kept_existing = array();
+            foreach ($images_input as $img) {
+                $isBase64 = isset($img['data']) && $this->is_base64_image_string($img['data']);
+                if (!$isBase64 && isset($img['name']) && in_array($img['name'], $current_images, true)) {
+                    $kept_existing[] = $img['name'];
+                } elseif ($isBase64) {
+                    $new_images_payload[] = $img; // base64 olanları sonra yazacağız
+                }
+            }
+
+            // 2) Yeni gelecek dosyalar için başlangıç numarası: mevcut (korunan) içindeki en yüksek numara
+            $start_index = $this->get_max_image_index($kept_existing);
+            $new_saved = array();
+            if (!empty($new_images_payload)) {
+                $new_saved = $this->process_listing_images($id, $new_images_payload, $start_index);
+            }
+
+            // 3) Son liste: önce korunacaklar (sırası istemciden), ardından yeni kaydedilenler
+            $final_images = array_merge($kept_existing, $new_saved);
+
+            // 4) Disk temizliği: artık listede olmayan mevcut dosyaları sil
+            $to_delete = array_diff($current_images, $final_images);
+            if (!empty($to_delete)) {
+                $this->delete_listing_images($id, $to_delete);
+            }
+
+            // 5) DB güncellemesi: images alanını nihai liste ile yaz
+            $update_data['images'] = !empty($final_images) ? json_encode($final_images) : null;
+        } else {
+            // images alanı null/boş gönderildiyse tüm görselleri kaldır
+            if (!empty($current_images)) {
+                $this->delete_listing_images($id, $current_images);
+            }
+            $update_data['images'] = null;
+        }
+    }
+
+    // Kapak resmi indexi gönderildiyse güncelle
+    if (array_key_exists('featuredImageIndex', $data)) {
+        $fIndex = intval($data['featuredImageIndex']);
+        // Eğer images da güncellenmişse sınır kontrolü yap
+        if (isset($update_data['images'])) {
+            $arr = $update_data['images'] ? json_decode($update_data['images'], true) : array();
+            if (is_array($arr) && !empty($arr)) {
+                if ($fIndex < 0 || $fIndex >= count($arr)) {
+                    $fIndex = 0;
+                }
+            } else {
+                $fIndex = 0;
+            }
+        }
+        $update_data['featured_image_index'] = $fIndex;
+    }
+
+    // Emoji sadece açıkça gönderildiyse güncellensin; aksi halde dokunma
+    if (array_key_exists('emoji', $data)) {
+        $update_data['emoji'] = sanitize_text_field($data['emoji']);
+    }
+
+    // Değişecek veri yoksa başarı döndür (no-op)
+    if (empty($update_data)) {
+        wp_send_json_success(array('message' => 'Değişiklik yok'));
+    }
+
     $result = $wpdb->update($table_name, $update_data, array('id' => $id));
     
     if ($result !== false) {
