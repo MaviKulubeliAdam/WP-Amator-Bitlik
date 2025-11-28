@@ -8,8 +8,13 @@
 function populateFilterOptions() {
   if (!allListings || !Array.isArray(allListings)) return;
   
-  const brands = [...new Set(allListings.map(listing => listing.brand))].sort();
   const brandOptions = document.getElementById('brandOptions');
+  const locationOptions = document.getElementById('locationOptions');
+  
+  // my-listings sayfasında bu elementler mevcut değil
+  if (!brandOptions || !locationOptions) return;
+  
+  const brands = [...new Set(allListings.map(listing => listing.brand))].sort();
   brandOptions.innerHTML = '<div class="dropdown-option multi-select selected" data-value="all">Tüm Markalar</div>';
   brands.forEach(brand => {
     const option = document.createElement('div');
@@ -20,7 +25,6 @@ function populateFilterOptions() {
   });
 
   const locations = [...new Set(allListings.map(listing => listing.location))].sort();
-  const locationOptions = document.getElementById('locationOptions');
   locationOptions.innerHTML = '<div class="dropdown-option multi-select selected" data-value="all">Tüm Konumlar</div>';
   locations.forEach(location => {
     const option = document.createElement('div');
@@ -122,6 +126,9 @@ function setupSingleSelectDropdown(type, callback) {
   const options = document.getElementById(`${type}Options`);
   const buttonText = document.getElementById(`${type}ButtonText`);
 
+  // my-listings sayfasında bu elementler mevcut değil
+  if (!dropdown || !button || !options || !buttonText) return;
+
   button.addEventListener('click', (e) => {
     e.stopPropagation();
     const isOpen = dropdown.classList.contains('open');
@@ -153,6 +160,9 @@ function setupMultiSelectDropdown(type, callback) {
   const options = document.getElementById(`${type}Options`);
   const buttonText = document.getElementById(`${type}ButtonText`);
   let selectedValues = [];
+
+  // my-listings sayfasında bu elementler mevcut değil
+  if (!dropdown || !button || !options || !buttonText) return;
 
   button.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -311,6 +321,9 @@ function renderListings() {
   const grid = document.getElementById('listingsGrid');
   const noResults = document.getElementById('noResults');
   const paginationContainer = document.getElementById('paginationContainer');
+
+  // my-listings sayfasında bu elementler mevcut değil
+  if (!grid || !noResults || !paginationContainer) return;
 
   // Toplam sayfa sayısını hesapla
   totalPages = Math.ceil(displayedListings.length / itemsPerPage);
