@@ -1,0 +1,1025 @@
+/**
+ * Modal.js - Modal, form, detay paneli ve görsel işlemleri
+ */
+
+/**
+ * Modal ayarlarını yapar
+ */
+function setupModal() {
+  const addBtn = document.getElementById('addListingBtn');
+  const closeBtn = document.getElementById('modalCloseBtn');
+  const cancelBtn = document.getElementById('formCancelBtn');
+  const modal = document.getElementById('addListingModal');
+  
+  if (addBtn) addBtn.addEventListener('click', openAddListingModal);
+  if (closeBtn) closeBtn.addEventListener('click', closeAddListingModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeAddListingModal);
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target.id === 'addListingModal') closeAddListingModal();
+    });
+  }
+}
+
+/**
+ * Form ayarlarını yapar
+ */
+function setupForm() {
+  document.getElementById('addListingForm').addEventListener('submit', handleFormSubmit);
+  document.getElementById('formImages').addEventListener('change', handleImageUpload);
+
+  ['formTitle', 'formBrand', 'formModel', 'formSellerName', 'formLocation', 'formDescription'].forEach(id => {
+    const input = document.getElementById(id);
+    input.addEventListener('input', (e) => {
+      const start = e.target.selectionStart;
+      const value = e.target.value;
+      if (value.length > 0) {
+        e.target.value = value.charAt(0).toUpperCase() + value.slice(1);
+        e.target.setSelectionRange(start, start);
+      }
+      if (id === 'formTitle' || id === 'formCallsign' || id === 'formPrice') {
+        updatePreview();
+      }
+    });
+  });
+
+  const callsignInput = document.getElementById('formCallsign');
+  callsignInput.addEventListener('input', (e) => {
+    const start = e.target.selectionStart;
+    e.target.value = e.target.value.toUpperCase();
+    e.target.setSelectionRange(start, start);
+    updatePreview();
+  });
+
+  document.getElementById('formCurrency').addEventListener('change', updatePreview);
+
+  const emailInput = document.getElementById('formEmail');
+  emailInput.addEventListener('blur', (e) => {
+    const email = e.target.value.trim();
+    if (email && !isValidEmail(email)) {
+      e.target.setCustomValidity('Geçerli bir e-posta adresi girin');
+      e.target.reportValidity();
+    } else {
+      e.target.setCustomValidity('');
+    }
+  });
+  emailInput.addEventListener('input', (e) => e.target.setCustomValidity(''));
+
+  const phoneInput = document.getElementById('formPhone');
+  phoneInput.addEventListener('input', (e) => {
+    let value = e.target.value.replace(/\D/g, '');
+    if (value.length > 11) value = value.slice(0, 11);
+    e.target.value = value;
+    e.target.setCustomValidity(value.length > 0 && value.length !== 11 ? 'Telefon numarası tam olarak 11 hane olmalıdır' : '');
+  });
+  phoneInput.addEventListener('blur', (e) => {
+    const value = e.target.value.replace(/\D/g, '');
+    if (value.length > 0 && value.length !== 11) {
+      e.target.setCustomValidity('Telefon numarası tam olarak 11 hane olmalıdır');
+      e.target.reportValidity();
+    }
+  });
+}
+
+/**
+ * Yeni ilan ekleme modalını açar
+ */
+function openAddListingModal() {
+  // Çift katmanlı güvenlik kontrolü
+  if (!ativ_ajax.is_user_logged_in) {
+    alert('İlan eklemek için giriş yapmalısınız.');
+    return;
+  }
+  
+  // Butonun görünür olup olmadığını kontrol et (ekstra güvenlik)
+  const addButton = document.getElementById('addListingBtn');
+  if (!addButton || addButton.style.display === 'none' || addButton.offsetParent === null) {
+    alert('Bu işlem için yetkiniz bulunmamaktadır.');
+    return;
+  }
+  
+  editingListing = null;
+  document.getElementById('addListingModal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
+  document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
+  updatePreview();
+}
+
+/**
+ * İlan düzenleme modalını açar
+ */
+async function openEditListingModal(listingOrId) {
+  // Accept either a listing object or an id. Always try to use the freshest listing from allListings.
+  let listing = listingOrId;
+  if (typeof listingOrId === 'number' || typeof listingOrId === 'string') {
+    listing = allListings.find(l => l.id == listingOrId);
+    if (!listing) {
+      try {
+        await loadListings();
+        listing = allListings.find(l => l.id == listingOrId);
+      } catch (e) {
+        console.error('Listing yüklenemedi:', e);
+      }
+    }
+  }
+
+  if (!listing) {
+    alert('İlan bilgisi yüklenemedi');
+    return;
+  }
+
+  console.log('[DEBUG] openEditListingModal resolved listing id:', listing.id, 'user_id:', listing.user_id);
+
+  // Use a shallow copy to avoid accidental mutation of the global allListings item
+  editingListing = Object.assign({}, listing);
+
+  // Populate modal fields
+  document.getElementById('formTitle').value = listing.title || '';
+  document.getElementById('formCategory').value = listing.category || '';
+  document.getElementById('formBrand').value = listing.brand || '';
+  document.getElementById('formModel').value = listing.model || '';
+  document.getElementById('formCondition').value = listing.condition || '';
+  document.getElementById('formPrice').value = listing.price || '';
+  document.getElementById('formCurrency').value = listing.currency || 'TRY';
+  document.getElementById('formDescription').value = listing.description || '';
+  document.getElementById('formCallsign').value = listing.callsign || '';
+  document.getElementById('formSellerName').value = listing.seller_name || '';
+  document.getElementById('formLocation').value = listing.location || '';
+  document.getElementById('formEmail').value = listing.seller_email || '';
+  document.getElementById('formPhone').value = listing.seller_phone || '';
+
+  // Normalize images for previews: stored images may be strings (filenames) or objects
+  uploadedImages.forEach(img => { if (img && img.previewUrl) URL.revokeObjectURL(img.previewUrl); });
+  uploadedImages = [];
+  featuredImageIndex = 0;
+
+  if (listing.images && Array.isArray(listing.images) && listing.images.length > 0) {
+    listing.images.forEach((img, idx) => {
+      if (typeof img === 'string') {
+        // Existing filename stored in DB -> build URL for preview
+        const src = (typeof ativ_ajax !== 'undefined' && ativ_ajax.upload_url) ? (ativ_ajax.upload_url + listing.id + '/' + img) : img;
+        uploadedImages.push({ name: img, data: src });
+      } else if (img && (img.data || img.name)) {
+        // Already an object (legacy support)
+        if (img.data && img.name) uploadedImages.push({ name: img.name, data: img.data });
+        else if (img.name) uploadedImages.push({ name: img.name, data: (typeof ativ_ajax !== 'undefined' ? (ativ_ajax.upload_url + listing.id + '/' + img.name) : img.name) });
+      }
+    });
+    featuredImageIndex = listing.featured_image_index || 0;
+    renderImagePreviews();
+  }
+
+  // Show modal last so previews/fields are ready
+  document.getElementById('addListingModal').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  document.querySelector('.modal-header h2').textContent = 'İlanı Düzenle';
+  document.getElementById('formSubmitBtn').textContent = 'Değişiklikleri Kaydet';
+
+  updatePreview();
+}
+
+/**
+ * İlan ekleme modalını kapatır
+ */
+function closeAddListingModal() {
+  document.getElementById('addListingModal').style.display = 'none';
+  document.body.style.overflow = 'auto';
+  document.getElementById('addListingForm').reset();
+  document.getElementById('formMessage').innerHTML = '';
+  uploadedImages = [];
+  featuredImageIndex = 0;
+  editingListing = null;
+  renderImagePreviews();
+}
+
+/**
+ * Önizlemeyi günceller
+ */
+function updatePreview() {
+  const title = document.getElementById('formTitle').value.trim();
+  const callsign = document.getElementById('formCallsign').value.trim();
+  const price = document.getElementById('formPrice').value;
+  const currency = document.getElementById('formCurrency').value;
+
+  const previewTitle = document.getElementById('previewTitle');
+  const previewCallsign = document.getElementById('previewCallsign');
+  const previewPrice = document.getElementById('previewPrice');
+  const previewImage = document.getElementById('previewImage');
+
+  previewTitle.innerHTML = title || '<span class="preview-empty-state">İlan başlığı...</span>';
+  previewCallsign.innerHTML = callsign || '<span class="preview-empty-state">Çağrı işareti...</span>';
+
+  const currencySymbol = getCurrencySymbol(currency);
+  const displayPrice = price && parseFloat(price) > 0 ? parseFloat(price) : 0;
+  previewPrice.innerHTML = `${currencySymbol}${displayPrice} ${currency}`;
+  
+  if (uploadedImages.length > 0) {
+    previewImage.innerHTML = `<img src="${uploadedImages[featuredImageIndex].data}" alt="Preview">`;
+  } else {
+    previewImage.innerHTML = '📻';
+  }
+}
+
+/**
+ * Görsel yükleme işleyicisi
+ */
+function handleImageUpload(e) {
+  const files = Array.from(e.target.files);
+  const maxFiles = 5;
+  
+  if (uploadedImages.length + files.length > maxFiles) {
+    const messageDiv = document.getElementById('formMessage');
+    messageDiv.innerHTML = '<div class="error-message">Maksimum 5 görsel yükleyebilirsiniz.</div>';
+    setTimeout(() => messageDiv.innerHTML = '', 3000);
+    return;
+  }
+
+  files.forEach(file => {
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        uploadedImages.push({ data: event.target.result, name: file.name });
+        renderImagePreviews();
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  e.target.value = '';
+}
+
+/**
+ * Görsel önizlemelerini render eder
+ */
+function renderImagePreviews() {
+  const container = document.getElementById('imagePreviewContainer');
+  container.innerHTML = '';
+
+  uploadedImages.forEach((image, index) => {
+    const previewItem = document.createElement('div');
+    previewItem.className = 'image-preview-item' + (index === featuredImageIndex ? ' featured' : '');
+    
+    previewItem.innerHTML = `
+      <img src="${image.data}" alt="Preview ${index + 1}">
+      <div class="image-preview-actions">
+        <button type="button" class="image-action-btn" onclick="setFeaturedImage(${index})" title="Vitrin Fotoğrafı Yap">⭐</button>
+        <button type="button" class="image-action-btn" onclick="removeImage(${index})" title="Sil">🗑️</button>
+      </div>
+      ${index === featuredImageIndex ? '<div class="featured-badge">VİTRİN</div>' : ''}
+    `;
+    
+    container.appendChild(previewItem);
+  });
+  
+  updatePreview();
+}
+
+/**
+ * Vitrin görselini ayarlar
+ */
+window.setFeaturedImage = function(index) {
+  featuredImageIndex = index;
+  renderImagePreviews();
+};
+
+/**
+ * Görseli kaldırır
+ */
+window.removeImage = function(index) {
+  uploadedImages.splice(index, 1);
+  if (featuredImageIndex >= uploadedImages.length) {
+    featuredImageIndex = Math.max(0, uploadedImages.length - 1);
+  }
+  renderImagePreviews();
+};
+
+/**
+ * Form gönderim işleyicisi
+ */
+async function handleFormSubmit(e) {
+  e.preventDefault();
+  
+  const submitBtn = document.getElementById('formSubmitBtn');
+  const messageDiv = document.getElementById('formMessage');
+  
+  submitBtn.disabled = true;
+  const isEditing = editingListing !== null;
+  submitBtn.innerHTML = `<span class="loading-spinner"></span>${isEditing ? 'Kaydediliyor...' : 'Ekleniyor...'}`;
+  messageDiv.innerHTML = '';
+
+  const callsign = document.getElementById('formCallsign').value.trim();
+  
+  if (!userCallsign) {
+    userCallsign = callsign;
+    localStorage.setItem('userCallsign', callsign);
+  }
+
+  const listingData = {
+    title: document.getElementById('formTitle').value.trim(),
+    category: document.getElementById('formCategory').value,
+    brand: document.getElementById('formBrand').value.trim(),
+    model: document.getElementById('formModel').value.trim(),
+    condition: document.getElementById('formCondition').value,
+    price: parseFloat(document.getElementById('formPrice').value),
+    currency: document.getElementById('formCurrency').value,
+    description: document.getElementById('formDescription').value.trim(),
+    images: uploadedImages.length > 0 ? uploadedImages : null,
+    featuredImageIndex: featuredImageIndex,
+    emoji: uploadedImages.length > 0 ? null : "📻",
+    callsign: callsign,
+    seller_name: document.getElementById('formSellerName').value.trim(),
+    location: document.getElementById('formLocation').value.trim(),
+    seller_email: document.getElementById('formEmail').value.trim(),
+    seller_phone: document.getElementById('formPhone').value.trim()
+  };
+
+  try {
+    if (isEditing) {
+      await updateListing(editingListing.id, listingData);
+      messageDiv.innerHTML = '<div class="success-message">İlan başarıyla güncellendi!</div>';
+    } else {
+      await saveListing(listingData);
+      messageDiv.innerHTML = '<div class="success-message">İlanınız başarıyla eklendi!</div>';
+    }
+    
+    await loadListings();
+    populateFilterOptions();
+    applyFiltersAndRender();
+    
+    setTimeout(() => {
+      closeAddListingModal();
+    }, 2000);
+  } catch (error) {
+    messageDiv.innerHTML = '<div class="error-message">İşlem sırasında bir hata oluştu. Lütfen tekrar deneyin.</div>';
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = isEditing ? 'Değişiklikleri Kaydet' : 'İlanı Yayınla';
+  }
+}
+
+/**
+ * İlan düzenleme fonksiyonu
+ */
+window.editListing = async function(id) {
+  console.log('[DEBUG] editListing called with id:', id, 'typeof:', typeof id);
+  // My-listings veya gallery'den gelmiş olabilir
+  let listing = null;
+  const idNum = Number(id);
+  // Önce allListings'den ara (gallery)
+  listing = allListings.find(l => Number(l.id) === idNum);
+  
+  // Yoksa loadListings'i çağır ve yeniden ara
+  if (!listing) {
+    try {
+      await loadListings();
+      listing = allListings.find(l => Number(l.id) === idNum);
+    } catch (e) {
+      console.error('Listing yüklenemedi:', e);
+    }
+  }
+  
+  if (listing) {
+    console.log('[DEBUG] editListing resolved listing id:', listing.id, 'user_id:', listing.user_id);
+    openEditListingModal(listing);
+  } else {
+    console.warn('[DEBUG] editListing could not find listing for id:', idNum);
+    alert('İlan bilgisi yüklenemedi');
+  }
+};
+
+/**
+ * İlan silme onayı
+ */
+window.confirmDeleteListing = async function(id) {
+  // My-listings sayfasından gelen silme işlemi için direkt title bul
+  let listing = null;
+  
+  // Eğer sayfada listing varsa (my-listings) direkt HTML'den al
+  const rowElement = document.querySelector(`[data-listing-id="${id}"]`);
+  if (rowElement) {
+    const titleElement = rowElement.querySelector('.listing-row-title');
+    listing = {
+      id: id,
+      title: titleElement ? titleElement.textContent : 'İlan'
+    };
+  } else {
+    // Yoksa allListings'den ara (gallery sayfası)
+    listing = allListings.find(l => l.id === id);
+  }
+  
+  if (!listing) {
+    alert('İlan bulunamadı');
+    return;
+  }
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.id = 'deleteConfirmModal';
+  
+  modal.innerHTML = `
+    <div class="delete-confirmation">
+      <h3>İlanı Sil</h3>
+      <p><strong>${listing.title}</strong> ilanını silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.</p>
+      <div class="delete-confirmation-actions">
+        <button class="btn-delete-cancel" id="deleteCancelBtn">İptal</button>
+        <button class="btn-delete-confirm" id="deleteConfirmBtn">Sil</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+  document.body.style.overflow = 'hidden';
+
+  document.getElementById('deleteCancelBtn').addEventListener('click', () => {
+    modal.remove();
+    document.body.style.overflow = 'auto';
+  });
+
+  document.getElementById('deleteConfirmBtn').addEventListener('click', async () => {
+    const confirmBtn = document.getElementById('deleteConfirmBtn');
+    confirmBtn.disabled = true;
+    confirmBtn.innerHTML = '<span class="loading-spinner"></span>Siliniyor...';
+
+    try {
+      await deleteListing(id);
+      
+      // My-listings sayfasında ise satırı sil
+      if (rowElement) {
+        const wrapper = rowElement.closest('.listing-row-wrapper');
+        if (wrapper) {
+          wrapper.remove();
+        }
+      } else {
+        // Gallery sayfasında ise yeniden yükle
+        await loadListings();
+        populateFilterOptions();
+        applyFiltersAndRender();
+      }
+      
+      modal.remove();
+      document.body.style.overflow = 'auto';
+    } catch (error) {
+      console.error('Silme işlemi başarısız:', error);
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = 'Sil';
+    }
+  });
+
+  modal.addEventListener('click', (e) => {
+    if (e.target.id === 'deleteConfirmModal') {
+      modal.remove();
+      document.body.style.overflow = 'auto';
+    }
+  });
+};
+
+// ========================================
+// Lightbox Fonksiyonları
+// ========================================
+
+/**
+ * Lightbox'ı açar
+ */
+function openLightbox(images, startIndex = 0, source = 'detail') {
+  if (!images || images.length === 0) return;
+  
+  currentImages = images;
+  currentLightboxSlide = startIndex;
+  isLightboxOpen = true;
+  lightboxSource = source;
+  
+  // Lightbox HTML'ini oluştur
+  const lightboxHTML = `
+    <div class="lightbox-overlay active" id="lightboxOverlay">
+      <button class="lightbox-close" onclick="closeLightbox()">×</button>
+      
+      <div class="lightbox-nav">
+        <button class="lightbox-arrow prev-arrow" onclick="changeLightboxSlide(-1)">‹</button>
+        <button class="lightbox-arrow next-arrow" onclick="changeLightboxSlide(1)">›</button>
+      </div>
+      
+      <div class="lightbox-content" id="lightboxContent">
+        ${images.map((image, index) => `
+          <img src="${image.data}" 
+               alt="İlan görseli ${index + 1}" 
+               class="lightbox-image ${index === startIndex ? 'active' : ''} ${source === 'detail' ? 'zoomable' : ''}"
+               ${source === 'detail' ? 'onclick="toggleZoom(this)"' : ''}
+               loading="lazy">
+        `).join('')}
+      </div>
+      
+      <div class="lightbox-counter">
+        ${startIndex + 1} / ${images.length}
+      </div>
+      
+      ${images.length > 1 ? `
+        <div class="lightbox-thumbnails">
+          ${images.map((image, index) => `
+            <div class="lightbox-thumbnail ${index === startIndex ? 'active' : ''}" 
+                 onclick="goToLightboxSlide(${index})">
+              <img src="${image.data}" alt="Thumbnail ${index + 1}">
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', lightboxHTML);
+  document.body.style.overflow = 'hidden';
+  
+  // Klavye event listener'larını ekle
+  document.addEventListener('keydown', handleLightboxKeydown);
+}
+
+/**
+ * Lightbox'ı kapatır
+ */
+function closeLightbox() {
+  const lightbox = document.getElementById('lightboxOverlay');
+  if (lightbox) {
+    lightbox.remove();
+  }
+  isLightboxOpen = false;
+  lightboxSource = '';
+  document.body.style.overflow = 'auto';
+  
+  // Klavye event listener'larını kaldır
+  document.removeEventListener('keydown', handleLightboxKeydown);
+}
+
+/**
+ * Lightbox slaytını değiştirir
+ */
+function changeLightboxSlide(direction) {
+  if (currentImages.length === 0) return;
+  
+  // Mevcut slaytı gizle
+  const currentImage = document.querySelector('.lightbox-image.active');
+  if (currentImage) {
+    currentImage.classList.remove('active');
+    currentImage.classList.remove('zooming'); // Zoom'u sıfırla
+    currentImage.style.transform = 'scale(1)'; // Transform'u sıfırla
+  }
+  
+  // Thumbnail'leri güncelle
+  const currentThumbnail = document.querySelector('.lightbox-thumbnail.active');
+  if (currentThumbnail) {
+    currentThumbnail.classList.remove('active');
+  }
+  
+  // Yeni slaytı hesapla
+  currentLightboxSlide += direction;
+  
+  // Sınırları kontrol et
+  if (currentLightboxSlide >= currentImages.length) {
+    currentLightboxSlide = 0;
+  } else if (currentLightboxSlide < 0) {
+    currentLightboxSlide = currentImages.length - 1;
+  }
+  
+  // Yeni slaytı göster
+  showLightboxSlide(currentLightboxSlide);
+}
+
+/**
+ * Belirli bir lightbox slaytına gider
+ */
+function goToLightboxSlide(slideIndex) {
+  if (slideIndex < 0 || slideIndex >= currentImages.length) return;
+  
+  // Mevcut slaytı gizle
+  const currentImage = document.querySelector('.lightbox-image.active');
+  if (currentImage) {
+    currentImage.classList.remove('active');
+    currentImage.classList.remove('zooming');
+    currentImage.style.transform = 'scale(1)';
+  }
+  
+  // Thumbnail'leri güncelle
+  const currentThumbnail = document.querySelector('.lightbox-thumbnail.active');
+  if (currentThumbnail) {
+    currentThumbnail.classList.remove('active');
+  }
+  
+  currentLightboxSlide = slideIndex;
+  showLightboxSlide(slideIndex);
+}
+
+/**
+ * Lightbox slaytını gösterir
+ */
+function showLightboxSlide(slideIndex) {
+  const images = document.querySelectorAll('.lightbox-image');
+  const thumbnails = document.querySelectorAll('.lightbox-thumbnail');
+  const counter = document.querySelector('.lightbox-counter');
+  
+  if (images[slideIndex]) {
+    images[slideIndex].classList.add('active');
+  }
+  
+  if (thumbnails[slideIndex]) {
+    thumbnails[slideIndex].classList.add('active');
+  }
+  
+  if (counter) {
+    counter.textContent = `${slideIndex + 1} / ${currentImages.length}`;
+  }
+}
+
+/**
+ * Lightbox klavye işleyicisi
+ */
+function handleLightboxKeydown(e) {
+  if (!isLightboxOpen) return;
+  
+  switch(e.key) {
+    case 'Escape':
+      closeLightbox();
+      break;
+    case 'ArrowLeft':
+      changeLightboxSlide(-1);
+      break;
+    case 'ArrowRight':
+      changeLightboxSlide(1);
+      break;
+    case ' ':
+      // Sadece detail sayfasından açılmışsa zoom yap
+      if (lightboxSource === 'detail') {
+        e.preventDefault();
+        const currentImage = document.querySelector('.lightbox-image.active');
+        if (currentImage) {
+          toggleZoom(currentImage);
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Zoom toggle fonksiyonu - sadece detail sayfasında çalışır
+ */
+function toggleZoom(imageElement) {
+  if (lightboxSource !== 'detail') return;
+  
+  if (imageElement.classList.contains('zooming')) {
+    // Zoom'u kapat
+    imageElement.classList.remove('zooming');
+    imageElement.style.transform = 'scale(1)';
+    imageElement.style.cursor = 'zoom-in';
+  } else {
+    // Zoom'u aç
+    imageElement.classList.add('zooming');
+    imageElement.style.transform = 'scale(1.5)';
+    imageElement.style.cursor = 'zoom-out';
+  }
+}
+
+// Lightbox overlay'e tıklanınca kapatma - zoom'u da sıfırla
+document.addEventListener('click', function(e) {
+  if (isLightboxOpen && e.target.id === 'lightboxOverlay') {
+    // Zoom açıksa kapat
+    const zoomedImage = document.querySelector('.lightbox-image.zooming');
+    if (zoomedImage) {
+      zoomedImage.classList.remove('zooming');
+      zoomedImage.style.transform = 'scale(1)';
+    }
+    closeLightbox();
+  }
+});
+
+// ========================================
+// Slider Fonksiyonları
+// ========================================
+
+/**
+ * Slider'ı başlatır
+ */
+function initSlider(images, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container || !images || images.length === 0) return;
+  
+  currentSlide = 0;
+  
+  // Slider HTML'ini oluştur
+  let sliderHTML = `
+    <div class="image-slider">
+      <div class="slider-counter">1 / ${images.length}</div>
+      <div class="slider-arrows">
+        <button class="slider-arrow prev-arrow" onclick="changeSlide(-1, '${containerId}')">‹</button>
+        <button class="slider-arrow next-arrow" onclick="changeSlide(1, '${containerId}')">›</button>
+      </div>
+  `;
+  
+  // Görselleri ekle - tıklanabilir yap (detail source ile)
+  images.forEach((image, index) => {
+    sliderHTML += `
+      <img src="${image.data}" 
+           alt="İlan görseli ${index + 1}" 
+           class="slider-image ${index === 0 ? 'active' : ''}"
+           onclick="openLightbox(currentImages, ${index}, 'detail')"
+           loading="lazy">
+    `;
+  });
+  
+  // Navigasyon noktalarını ekle
+  sliderHTML += `<div class="slider-nav">`;
+  images.forEach((_, index) => {
+    sliderHTML += `
+      <div class="slider-dot ${index === 0 ? 'active' : ''}" 
+           onclick="goToSlide(${index}, '${containerId}')"></div>
+    `;
+  });
+  sliderHTML += `</div>`;
+  
+  sliderHTML += `</div>`;
+  
+  // Küçük resim önizlemeleri
+  if (images.length > 1) {
+    sliderHTML += `<div class="image-thumbnails">`;
+    images.forEach((image, index) => {
+      sliderHTML += `
+        <div class="thumbnail ${index === 0 ? 'active' : ''}" 
+             onclick="goToSlide(${index}, '${containerId}')">
+          <img src="${image.data}" alt="Thumbnail ${index + 1}">
+        </div>
+      `;
+    });
+    sliderHTML += `</div>`;
+  }
+  
+  container.innerHTML = sliderHTML;
+  
+  // Global currentImages'i güncelle (lightbox için)
+  currentImages = images;
+}
+
+/**
+ * Slider slaytını değiştirir
+ */
+function changeSlide(direction, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  
+  const images = container.querySelectorAll('.slider-image');
+  const dots = container.querySelectorAll('.slider-dot');
+  const thumbnails = container.querySelectorAll('.thumbnail');
+  const counter = container.querySelector('.slider-counter');
+  
+  if (images.length === 0) return;
+  
+  // Mevcut slaytı gizle
+  images[currentSlide].classList.remove('active');
+  dots[currentSlide].classList.remove('active');
+  if (thumbnails.length > 0) {
+    thumbnails[currentSlide].classList.remove('active');
+  }
+  
+  // Yeni slaytı hesapla
+  currentSlide += direction;
+  
+  // Sınırları kontrol et
+  if (currentSlide >= images.length) {
+    currentSlide = 0;
+  } else if (currentSlide < 0) {
+    currentSlide = images.length - 1;
+  }
+  
+  // Yeni slaytı göster
+  images[currentSlide].classList.add('active');
+  dots[currentSlide].classList.add('active');
+  if (thumbnails.length > 0) {
+    thumbnails[currentSlide].classList.add('active');
+  }
+  
+  // Sayacı güncelle
+  if (counter) {
+    counter.textContent = `${currentSlide + 1} / ${images.length}`;
+  }
+}
+
+/**
+ * Belirli bir slider slaytına gider
+ */
+function goToSlide(slideIndex, containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  
+  const images = container.querySelectorAll('.slider-image');
+  const dots = container.querySelectorAll('.slider-dot');
+  const thumbnails = container.querySelectorAll('.thumbnail');
+  const counter = container.querySelector('.slider-counter');
+  
+  if (slideIndex < 0 || slideIndex >= images.length) return;
+  
+  // Mevcut slaytı gizle
+  images[currentSlide].classList.remove('active');
+  dots[currentSlide].classList.remove('active');
+  if (thumbnails.length > 0) {
+    thumbnails[currentSlide].classList.remove('active');
+  }
+  
+  // Yeni slayta geç
+  currentSlide = slideIndex;
+  
+  // Yeni slaytı göster
+  images[currentSlide].classList.add('active');
+  dots[currentSlide].classList.add('active');
+  if (thumbnails.length > 0) {
+    thumbnails[currentSlide].classList.add('active');
+  }
+  
+  // Sayacı güncelle
+  if (counter) {
+    counter.textContent = `${currentSlide + 1} / ${images.length}`;
+  }
+}
+
+// Klavye kontrolleri
+document.addEventListener('keydown', function(e) {
+  const detailModal = document.getElementById('detailModal');
+  if (!detailModal || detailModal.style.display === 'none') return;
+  
+  if (e.key === 'ArrowLeft') {
+    changeSlide(-1, 'detailSlider');
+  } else if (e.key === 'ArrowRight') {
+    changeSlide(1, 'detailSlider');
+  } else if (e.key === 'Escape') {
+    closeDetailPanel();
+  }
+});
+
+// ========================================
+// Detay Paneli Fonksiyonları
+// ========================================
+
+/**
+ * Detay panelini açar
+ */
+function openDetailPanel(listing) {
+  closeDetailPanel();
+  
+  selectedListing = listing;
+  
+  const currencySymbol = getCurrencySymbol(listing.currency || 'TRY');
+
+  const detailModal = document.createElement('div');
+  detailModal.className = 'detail-modal-overlay';
+  detailModal.id = 'detailModal';
+  detailModal.setAttribute('tabindex', '0');
+  
+  let imageSection;
+  
+  if (listing.images && listing.images.length > 0) {
+    // Görsel varsa slider göster
+    imageSection = `
+      <div class="detail-left-section">
+        <div class="detail-card-preview">
+          <div id="detailSlider"></div>
+          <div class="detail-preview-content">
+            <h3 class="detail-preview-title">${listing.title}</h3>
+            <p class="detail-preview-callsign">${listing.callsign}</p>
+            <p class="detail-preview-price">${currencySymbol}${listing.price} ${listing.currency || 'TRY'}</p>
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    // Görsel yoksa emoji göster
+    imageSection = `
+      <div class="detail-left-section">
+        <div class="detail-card-preview">
+          <div class="detail-preview-image">
+            ${listing.emoji || '📻'}
+          </div>
+          <div class="detail-preview-content">
+            <h3 class="detail-preview-title">${listing.title}</h3>
+            <p class="detail-preview-callsign">${listing.callsign}</p>
+            <p class="detail-preview-price">${currencySymbol}${listing.price} ${listing.currency || 'TRY'}</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  
+  detailModal.innerHTML = `
+    <div class="detail-modal-content">
+      ${imageSection}
+      <div class="detail-right-section">
+        <div class="detail-header">
+          <h2>İlan Detayı</h2>
+          <button class="close-btn" id="detailCloseBtn" aria-label="Kapat">×</button>
+        </div>
+        <div class="detail-sections">
+          ${createDetailSections(listing)}
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(detailModal);
+  document.body.style.overflow = 'hidden';
+
+  // Slider'ı başlat (eğer görsel varsa)
+  if (listing.images && listing.images.length > 0) {
+    setTimeout(() => {
+      initSlider(listing.images, 'detailSlider');
+    }, 100);
+  }
+
+  // Odağı modal'a ver
+  detailModal.focus();
+
+  document.getElementById('detailCloseBtn').addEventListener('click', closeDetailPanel);
+  
+  detailModal.addEventListener('click', (e) => {
+    if (e.target.id === 'detailModal') {
+      closeDetailPanel();
+    }
+  });
+}
+
+/**
+ * Detay bölümlerini oluşturur
+ */
+function createDetailSections(listing) {
+  return `
+    <div class="product-details">
+      <h3>Ürün Bilgileri</h3>
+      <div class="detail-info">
+        <div class="detail-label">Marka</div>
+        <div class="detail-value">${listing.brand}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">Model</div>
+        <div class="detail-value">${listing.model}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">Durum</div>
+        <div class="detail-value">${listing.condition}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">Kategori</div>
+        <div class="detail-value">${getCategoryName(listing.category)}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">Fiyat</div>
+        <div class="detail-value">${getCurrencySymbol(listing.currency || 'TRY')}${listing.price} ${listing.currency || 'TRY'}</div>
+      </div>
+    </div>
+    <div class="product-details">
+      <h3>Açıklama</h3>
+      <div class="detail-description">
+        <p>${listing.description}</p>
+      </div>
+    </div>
+    <div class="seller-section">
+      <h3>Satıcı Bilgileri</h3>
+      <div class="detail-info">
+        <div class="detail-label">Ad Soyad</div>
+        <div class="detail-value">${listing.seller_name}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">Çağrı İşareti</div>
+        <div class="detail-value">${listing.callsign}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">Konum</div>
+        <div class="detail-value">${listing.location}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">E-posta</div>
+        <div class="detail-value">${listing.seller_email}</div>
+      </div>
+      <div class="detail-info">
+        <div class="detail-label">Telefon</div>
+        <div class="detail-value">${listing.seller_phone}</div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Detay panelini kapatır
+ */
+function closeDetailPanel() {
+  const detailModal = document.getElementById('detailModal');
+  if (detailModal) {
+    detailModal.remove();
+    document.body.style.overflow = 'auto';
+  }
+  selectedListing = null;
+}
+
+// Global window atamaları - inline onclick handler'lar için gerekli
+window.closeLightbox = closeLightbox;
+window.changeLightboxSlide = changeLightboxSlide;
+window.goToLightboxSlide = goToLightboxSlide;
+window.toggleZoom = toggleZoom;
+window.openLightbox = openLightbox;
+window.changeSlide = changeSlide;
+window.goToSlide = goToSlide;
+window.initSlider = initSlider;
+window.openDetailPanel = openDetailPanel;
+window.closeDetailPanel = closeDetailPanel;
