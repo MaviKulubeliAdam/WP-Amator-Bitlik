@@ -543,13 +543,8 @@ function openLightbox(images, startIndex = 0, source = 'detail') {
     </div>
   `;
   
-  // Lightbox'ı #ativ-container içine ekle - CSS stilleri için gerekli
-  const ativContainer = document.getElementById('ativ-container');
-  if (ativContainer) {
-    ativContainer.insertAdjacentHTML('beforeend', lightboxHTML);
-  } else {
-    document.body.insertAdjacentHTML('beforeend', lightboxHTML);
-  }
+  // Lightbox'ı body'ye ekle - fixed positioning ve z-index için gerekli
+  document.body.insertAdjacentHTML('beforeend', lightboxHTML);
   document.body.style.overflow = 'hidden';
   
   // Klavye event listener'larını ekle
@@ -719,16 +714,16 @@ document.addEventListener('click', function(e) {
 /**
  * Slider'ı başlatır
  */
-function initSlider(images, containerId) {
+function initSlider(images, containerId, startIndex = 0) {
   const container = document.getElementById(containerId);
   if (!container || !images || images.length === 0) return;
   
-  currentSlide = 0;
+  currentSlide = startIndex;
   
   // Slider HTML'ini oluştur
   let sliderHTML = `
     <div class="image-slider">
-      <div class="slider-counter">1 / ${images.length}</div>
+      <div class="slider-counter">${startIndex + 1} / ${images.length}</div>
       <div class="slider-arrows">
         <button class="slider-arrow prev-arrow" onclick="changeSlide(-1, '${containerId}')">‹</button>
         <button class="slider-arrow next-arrow" onclick="changeSlide(1, '${containerId}')">›</button>
@@ -737,10 +732,11 @@ function initSlider(images, containerId) {
   
   // Görselleri ekle - tıklanabilir yap (detail source ile)
   images.forEach((image, index) => {
+    const isActive = index === startIndex;
     sliderHTML += `
       <img src="${image.data}" 
            alt="İlan görseli ${index + 1}" 
-           class="slider-image ${index === 0 ? 'active' : ''}"
+           class="slider-image ${isActive ? 'active' : ''}"
            onclick="openLightbox(currentImages, ${index}, 'detail')"
            loading="lazy">
     `;
@@ -750,7 +746,7 @@ function initSlider(images, containerId) {
   sliderHTML += `<div class="slider-nav">`;
   images.forEach((_, index) => {
     sliderHTML += `
-      <div class="slider-dot ${index === 0 ? 'active' : ''}" 
+      <div class="slider-dot ${index === startIndex ? 'active' : ''}" 
            onclick="goToSlide(${index}, '${containerId}')"></div>
     `;
   });
@@ -763,7 +759,7 @@ function initSlider(images, containerId) {
     sliderHTML += `<div class="image-thumbnails">`;
     images.forEach((image, index) => {
       sliderHTML += `
-        <div class="thumbnail ${index === 0 ? 'active' : ''}" 
+        <div class="thumbnail ${index === startIndex ? 'active' : ''}" 
              onclick="goToSlide(${index}, '${containerId}')">
           <img src="${image.data}" alt="Thumbnail ${index + 1}">
         </div>
@@ -773,6 +769,9 @@ function initSlider(images, containerId) {
   }
   
   container.innerHTML = sliderHTML;
+  
+  // Container'a currentSlide'ı kaydet
+  container.dataset.currentSlide = startIndex;
   
   // Global currentImages'i güncelle (lightbox için)
   currentImages = images;
@@ -792,34 +791,41 @@ function changeSlide(direction, containerId) {
   
   if (images.length === 0) return;
   
+  // Container'da saklı currentSlide'ı al
+  let containerCurrentSlide = parseInt(container.dataset.currentSlide || 0);
+  
   // Mevcut slaytı gizle
-  images[currentSlide].classList.remove('active');
-  dots[currentSlide].classList.remove('active');
+  images[containerCurrentSlide].classList.remove('active');
+  dots[containerCurrentSlide].classList.remove('active');
   if (thumbnails.length > 0) {
-    thumbnails[currentSlide].classList.remove('active');
+    thumbnails[containerCurrentSlide].classList.remove('active');
   }
   
   // Yeni slaytı hesapla
-  currentSlide += direction;
+  containerCurrentSlide += direction;
   
   // Sınırları kontrol et
-  if (currentSlide >= images.length) {
-    currentSlide = 0;
-  } else if (currentSlide < 0) {
-    currentSlide = images.length - 1;
+  if (containerCurrentSlide >= images.length) {
+    containerCurrentSlide = 0;
+  } else if (containerCurrentSlide < 0) {
+    containerCurrentSlide = images.length - 1;
   }
   
   // Yeni slaytı göster
-  images[currentSlide].classList.add('active');
-  dots[currentSlide].classList.add('active');
+  images[containerCurrentSlide].classList.add('active');
+  dots[containerCurrentSlide].classList.add('active');
   if (thumbnails.length > 0) {
-    thumbnails[currentSlide].classList.add('active');
+    thumbnails[containerCurrentSlide].classList.add('active');
   }
   
   // Sayacı güncelle
   if (counter) {
-    counter.textContent = `${currentSlide + 1} / ${images.length}`;
+    counter.textContent = `${containerCurrentSlide + 1} / ${images.length}`;
   }
+  
+  // Container'da güncellemeyi kaydet
+  container.dataset.currentSlide = containerCurrentSlide;
+  currentSlide = containerCurrentSlide; // Global'i de güncelle
 }
 
 /**
@@ -836,27 +842,34 @@ function goToSlide(slideIndex, containerId) {
   
   if (slideIndex < 0 || slideIndex >= images.length) return;
   
+  // Container'da saklı currentSlide'ı al
+  let containerCurrentSlide = parseInt(container.dataset.currentSlide || 0);
+  
   // Mevcut slaytı gizle
-  images[currentSlide].classList.remove('active');
-  dots[currentSlide].classList.remove('active');
+  images[containerCurrentSlide].classList.remove('active');
+  dots[containerCurrentSlide].classList.remove('active');
   if (thumbnails.length > 0) {
-    thumbnails[currentSlide].classList.remove('active');
+    thumbnails[containerCurrentSlide].classList.remove('active');
   }
   
   // Yeni slayta geç
-  currentSlide = slideIndex;
+  containerCurrentSlide = slideIndex;
   
   // Yeni slaytı göster
-  images[currentSlide].classList.add('active');
-  dots[currentSlide].classList.add('active');
+  images[containerCurrentSlide].classList.add('active');
+  dots[containerCurrentSlide].classList.add('active');
   if (thumbnails.length > 0) {
-    thumbnails[currentSlide].classList.add('active');
+    thumbnails[containerCurrentSlide].classList.add('active');
   }
   
   // Sayacı güncelle
   if (counter) {
-    counter.textContent = `${currentSlide + 1} / ${images.length}`;
+    counter.textContent = `${containerCurrentSlide + 1} / ${images.length}`;
   }
+  
+  // Container'da güncellemeyi kaydet
+  container.dataset.currentSlide = containerCurrentSlide;
+  currentSlide = containerCurrentSlide; // Global'i de güncelle
 }
 
 // Klavye kontrolleri
@@ -947,8 +960,10 @@ function openDetailPanel(listing) {
 
   // Slider'ı başlat (eğer görsel varsa)
   if (listing.images && listing.images.length > 0) {
+    const rawIndex = listing.featured_image_index;
+    const featuredIndex = parseInt(rawIndex || 0);
     setTimeout(() => {
-      initSlider(listing.images, 'detailSlider');
+      initSlider(listing.images, 'detailSlider', featuredIndex);
     }, 100);
   }
 

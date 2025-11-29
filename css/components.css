@@ -1157,7 +1157,7 @@
       display: none;
       align-items: center;
       justify-content: center;
-      z-index: 2000;
+      z-index: 9999999;
       animation: fadeIn 0.3s ease;
     }
 
