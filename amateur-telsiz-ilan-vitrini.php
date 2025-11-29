@@ -81,9 +81,11 @@ class AmateurTelsizIlanVitrini {
     private function create_tables() {
     global $wpdb;
     
-    $table_name = $wpdb->prefix . 'amator_ilanlar';
-    
     $charset_collate = $wpdb->get_charset_collate();
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    
+    // Tablo 1: İlanlar tablosu
+    $table_name = $wpdb->prefix . 'amator_ilanlar';
     
     $sql = "CREATE TABLE $table_name (
         id bigint(20) NOT NULL AUTO_INCREMENT,
@@ -113,12 +115,59 @@ class AmateurTelsizIlanVitrini {
         INDEX status (status)
     ) $charset_collate;";
     
-    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
     
     if (!empty($wpdb->last_error)) {
-        error_log('ATIV Tablo oluşturma hatası: ' . $wpdb->last_error);
+        error_log('ATIV İlanlar tablosu oluşturma hatası: ' . $wpdb->last_error);
     }
+    
+    // Tablo 2: SMTP Ayarları tablosu
+    $settings_table = $wpdb->prefix . 'amator_telsiz_ayarlar';
+    
+    $sql_settings = "CREATE TABLE $settings_table (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        smtp_host varchar(255) DEFAULT 'smtp.gmail.com',
+        smtp_port int(11) DEFAULT 587,
+        smtp_username varchar(255),
+        smtp_password varchar(255),
+        smtp_from_name varchar(255) DEFAULT 'Amatör Bitlik',
+        smtp_from_email varchar(255),
+        enable_notifications tinyint(1) DEFAULT 1,
+        created_at datetime DEFAULT CURRENT_TIMESTAMP,
+        updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+    ) $charset_collate;";
+    
+    dbDelta($sql_settings);
+    
+    if (!empty($wpdb->last_error)) {
+        error_log('ATIV Ayarlar tablosu oluşturma hatası: ' . $wpdb->last_error);
+    }
+    
+    // Tablo 3: Mail Şablonları tablosu
+    $templates_table = $wpdb->prefix . 'amator_telsiz_sablonlar';
+    
+    $sql_templates = "CREATE TABLE $templates_table (
+        id bigint(20) NOT NULL AUTO_INCREMENT,
+        template_key varchar(100) NOT NULL,
+        template_name varchar(255) NOT NULL,
+        template_subject varchar(255) NOT NULL,
+        template_body longtext NOT NULL,
+        template_description varchar(500),
+        created_at datetime DEFAULT CURRENT_TIMESTAMP,
+        updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY unique_template_key (template_key)
+    ) $charset_collate;";
+    
+    dbDelta($sql_templates);
+    
+    if (!empty($wpdb->last_error)) {
+        error_log('ATIV Şablonlar tablosu oluşturma hatası: ' . $wpdb->last_error);
+    }
+    
+    // Varsayılan şablonları ekle (eğer yoksa)
+    $this->insert_default_templates();
 }
     
    private function enqueue_scripts() {
@@ -812,6 +861,15 @@ class AmateurTelsizIlanVitrini {
             'manage_options',                          // Yetki
             'ativ-listings',                           // Menu slug
             array($this, 'admin_listings_page')        // Callback
+        );
+        
+        add_submenu_page(
+            'ativ-listings',                            // Parent menu slug
+            'Ayarlar',                                  // Sayfa başlığı
+            'Ayarlar',                                  // Menü başlığı
+            'manage_options',                          // Yetki
+            'ativ-settings',                            // Menu slug
+            array($this, 'admin_settings_page')        // Callback
         );
     }
     
@@ -2091,6 +2149,613 @@ class AmateurTelsizIlanVitrini {
         $wpdb->update($table_name, $update_data, array('id' => $id));
         
         return true;
+    }
+    
+    /**
+     * Admin Ayarlar Sayfası
+     */
+    public function admin_settings_page() {
+        global $wpdb;
+        
+        // Ayarları kaydet
+        if (isset($_POST['action']) && $_POST['action'] === 'ativ_save_settings') {
+            if (!wp_verify_nonce($_POST['ativ_settings_nonce'], 'ativ_settings_nonce')) {
+                wp_die('Güvenlik hatası');
+            }
+            
+            $settings_table = $wpdb->prefix . 'amator_telsiz_ayarlar';
+            
+            // SMTP ayarlarını kaydet
+            $smtp_data = array(
+                'smtp_host' => sanitize_text_field($_POST['smtp_host'] ?? 'smtp.gmail.com'),
+                'smtp_port' => intval($_POST['smtp_port'] ?? 587),
+                'smtp_username' => sanitize_text_field($_POST['smtp_username'] ?? ''),
+                'smtp_password' => sanitize_text_field($_POST['smtp_password'] ?? ''),
+                'smtp_from_name' => sanitize_text_field($_POST['smtp_from_name'] ?? 'Amatör Bitlik'),
+                'smtp_from_email' => sanitize_email($_POST['smtp_from_email'] ?? get_option('admin_email')),
+                'enable_notifications' => 1,
+                'updated_at' => current_time('mysql')
+            );
+            
+            // Kayıt varsa güncelle, yoksa ekle
+            $existing = $wpdb->get_row("SELECT id FROM $settings_table LIMIT 1");
+            if ($existing) {
+                $wpdb->update($settings_table, $smtp_data, array('id' => $existing->id));
+            } else {
+                $wpdb->insert($settings_table, $smtp_data);
+            }
+            
+            // Mail şablonlarını kaydet
+            $templates_table = $wpdb->prefix . 'amator_telsiz_sablonlar';
+            
+            $templates = array(
+                'listing_submitted' => array(
+                    'name' => 'İlan Gönderimi Bildirimi',
+                    'body' => sanitize_textarea_field($_POST['mail_template_listing_submitted'] ?? '')
+                ),
+                'listing_approved' => array(
+                    'name' => 'İlan Onayı Bildirimi',
+                    'body' => sanitize_textarea_field($_POST['mail_template_listing_approved'] ?? '')
+                ),
+                'listing_rejected' => array(
+                    'name' => 'İlan Reddi Bildirimi',
+                    'body' => sanitize_textarea_field($_POST['mail_template_listing_rejected'] ?? '')
+                ),
+                'listing_deleted' => array(
+                    'name' => 'İlan Silinme Bildirimi (Kullanıcı Tarafından)',
+                    'body' => sanitize_textarea_field($_POST['mail_template_listing_deleted'] ?? '')
+                ),
+                'listing_deleted_by_admin' => array(
+                    'name' => 'İlan Silinme Bildirimi (Yönetici Tarafından)',
+                    'body' => sanitize_textarea_field($_POST['mail_template_listing_deleted_by_admin'] ?? '')
+                )
+            );
+            
+            foreach ($templates as $template_key => $template_data) {
+                $existing_template = $wpdb->get_row(
+                    $wpdb->prepare("SELECT id FROM $templates_table WHERE template_key = %s", $template_key)
+                );
+                
+                $template_update_data = array(
+                    'template_name' => $template_data['name'],
+                    'template_body' => $template_data['body'],
+                    'updated_at' => current_time('mysql')
+                );
+                
+                if ($existing_template) {
+                    $wpdb->update($templates_table, $template_update_data, array('id' => $existing_template->id));
+                } else {
+                    $wpdb->insert($templates_table, array_merge(
+                        array('template_key' => $template_key),
+                        $template_update_data
+                    ));
+                }
+            }
+            
+            echo '<div class="notice notice-success"><p>⚙️ Ayarlar başarıyla kaydedildi!</p></div>';
+        }
+        
+        // Veritabanından ayarları getir
+        $settings_table = $wpdb->prefix . 'amator_telsiz_ayarlar';
+        $templates_table = $wpdb->prefix . 'amator_telsiz_sablonlar';
+        
+        $settings = $wpdb->get_row("SELECT * FROM $settings_table LIMIT 1");
+        
+        $smtp_host = $settings ? $settings->smtp_host : 'smtp.gmail.com';
+        $smtp_port = $settings ? $settings->smtp_port : 587;
+        $smtp_username = $settings ? $settings->smtp_username : '';
+        $smtp_password = $settings ? $settings->smtp_password : '';
+        $smtp_from_name = $settings ? $settings->smtp_from_name : 'Amatör Bitlik';
+        $smtp_from_email = $settings ? $settings->smtp_from_email : get_option('admin_email');
+        
+        // Şablonları getir
+        $mail_template_listing_submitted = $this->get_template_body('listing_submitted', 'submitted');
+        $mail_template_listing_approved = $this->get_template_body('listing_approved', 'approved');
+        $mail_template_listing_rejected = $this->get_template_body('listing_rejected', 'rejected');
+        $mail_template_listing_deleted = $this->get_template_body('listing_deleted', 'deleted');
+        $mail_template_listing_deleted_by_admin = $this->get_template_body('listing_deleted_by_admin', 'deleted_by_admin');
+        
+        ?>
+        <div class="wrap ativ-settings-wrap">
+            <style>
+            .ativ-settings-wrap {
+                background: #f8f9fa;
+                padding: 20px 0 !important;
+            }
+            
+            .ativ-settings-header {
+                background: linear-gradient(135deg, #0073aa 0%, #005a87 100%);
+                color: white;
+                padding: 30px;
+                border-radius: 8px;
+                margin: 0 20px 30px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            
+            .ativ-settings-header h1 {
+                color: white;
+                margin: 0 0 10px 0;
+                font-size: 28px;
+            }
+            
+            .ativ-settings-tabs {
+                display: flex;
+                gap: 0;
+                margin: 0 20px 30px;
+                border-bottom: 2px solid #e0e0e0;
+            }
+            
+            .ativ-settings-tab {
+                padding: 12px 24px;
+                background: white;
+                border: none;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 600;
+                color: #666;
+                border-bottom: 3px solid transparent;
+                transition: all 0.2s ease;
+                margin-bottom: -2px;
+            }
+            
+            .ativ-settings-tab:hover {
+                color: #0073aa;
+            }
+            
+            .ativ-settings-tab.active {
+                color: #0073aa;
+                border-bottom-color: #0073aa;
+            }
+            
+            .ativ-settings-content {
+                display: none;
+                background: white;
+                padding: 30px;
+                border-radius: 8px;
+                margin: 0 20px 30px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            }
+            
+            .ativ-settings-content.active {
+                display: block;
+            }
+            
+            .ativ-form-group {
+                margin-bottom: 25px;
+            }
+            
+            .ativ-form-group label {
+                display: block;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: #333;
+                font-size: 14px;
+            }
+            
+            .ativ-form-group input[type="text"],
+            .ativ-form-group input[type="email"],
+            .ativ-form-group input[type="number"],
+            .ativ-form-group input[type="password"],
+            .ativ-form-group textarea {
+                width: 100%;
+                padding: 10px 12px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                font-size: 14px;
+                font-family: inherit;
+                transition: all 0.2s ease;
+                box-sizing: border-box;
+            }
+            
+            .ativ-form-group input:focus,
+            .ativ-form-group textarea:focus {
+                outline: none;
+                border-color: #0073aa;
+                box-shadow: 0 0 0 4px rgba(0,115,170,0.1);
+            }
+            
+            .ativ-form-group textarea {
+                resize: vertical;
+                min-height: 150px;
+                font-family: 'Monaco', 'Menlo', monospace;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            
+            .ativ-form-group .description {
+                font-size: 12px;
+                color: #999;
+                margin-top: 5px;
+            }
+            
+            .ativ-settings-section-title {
+                font-size: 16px;
+                font-weight: 700;
+                color: #333;
+                margin: 30px 0 20px 0;
+                padding-bottom: 10px;
+                border-bottom: 2px solid #f0f0f0;
+            }
+            
+            .ativ-settings-section-title:first-child {
+                margin-top: 0;
+            }
+            
+            .ativ-form-buttons {
+                display: flex;
+                gap: 10px;
+                margin-top: 30px;
+                padding-top: 20px;
+                border-top: 2px solid #f0f0f0;
+            }
+            
+            .ativ-btn-primary {
+                background: linear-gradient(135deg, #0073aa 0%, #005a87 100%);
+                color: white;
+                border: none;
+                padding: 12px 30px;
+                border-radius: 6px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-size: 14px;
+            }
+            
+            .ativ-btn-primary:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0,115,170,0.3);
+            }
+            
+            .ativ-info-box {
+                background: #e3f2fd;
+                border-left: 4px solid #0073aa;
+                padding: 15px;
+                border-radius: 6px;
+                margin-bottom: 20px;
+                font-size: 13px;
+                color: #1565c0;
+            }
+            
+            .ativ-info-box a {
+                color: #0d47a1;
+                font-weight: 600;
+            }
+            
+            .ativ-template-variables {
+                background: #f5f5f5;
+                border: 1px solid #ddd;
+                padding: 12px;
+                border-radius: 6px;
+                margin-bottom: 15px;
+                font-size: 12px;
+                color: #666;
+            }
+            
+            .ativ-template-variables strong {
+                color: #333;
+            }
+            </style>
+            
+            <div class="ativ-settings-header">
+                <h1>⚙️ Amatör Bitlik - Ayarlar</h1>
+                <p>E-posta bildirimleri ve SMTP ayarlarını düzenleyin</p>
+            </div>
+            
+            <form method="POST" action="">
+                <?php wp_nonce_field('ativ_settings_nonce', 'ativ_settings_nonce'); ?>
+                <input type="hidden" name="action" value="ativ_save_settings">
+                
+                <!-- Sekmeler -->
+                <div class="ativ-settings-tabs">
+                    <button type="button" class="ativ-settings-tab active" onclick="switchTab(event, 'smtp')">📧 SMTP Ayarları</button>
+                    <button type="button" class="ativ-settings-tab" onclick="switchTab(event, 'templates')">📝 Mail Şablonları</button>
+                </div>
+                
+                <!-- SMTP Ayarları Sekmesi -->
+                <div id="smtp" class="ativ-settings-content active">
+                    <h2>📧 SMTP Ayarları</h2>
+                    <p>E-posta göndermek için SMTP ayarlarını yapılandırın. Gmail kullanıyorsanız uygulama şifresi oluşturun.</p>
+                    
+                    <div class="ativ-info-box">
+                        💡 <strong>İpucu:</strong> Gmail için uygulama şifresi kullanmalısınız. <a href="https://support.google.com/accounts/answer/185833" target="_blank">Nasıl oluşturulur?</a>
+                    </div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="smtp_host">SMTP Sunucusu</label>
+                        <input type="text" id="smtp_host" name="smtp_host" value="<?php echo esc_attr($smtp_host); ?>" placeholder="smtp.gmail.com">
+                        <div class="description">Örnek: smtp.gmail.com, mail.example.com</div>
+                    </div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="smtp_port">SMTP Port</label>
+                        <input type="number" id="smtp_port" name="smtp_port" value="<?php echo esc_attr($smtp_port); ?>" placeholder="587">
+                        <div class="description">Gmail için: 587 (TLS) veya 465 (SSL)</div>
+                    </div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="smtp_username">SMTP Kullanıcı Adı</label>
+                        <input type="email" id="smtp_username" name="smtp_username" value="<?php echo esc_attr($smtp_username); ?>" placeholder="your-email@gmail.com">
+                        <div class="description">Gmail için tam e-posta adresinizi girin</div>
+                    </div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="smtp_password">SMTP Şifresi</label>
+                        <input type="password" id="smtp_password" name="smtp_password" value="<?php echo esc_attr($smtp_password); ?>" placeholder="••••••••">
+                        <div class="description">Gmail için uygulama şifresi (normal şifre değil)</div>
+                    </div>
+                    
+                    <div class="ativ-settings-section-title">Gönderen Bilgileri</div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="smtp_from_name">Gönderen Adı</label>
+                        <input type="text" id="smtp_from_name" name="smtp_from_name" value="<?php echo esc_attr($smtp_from_name); ?>" placeholder="Amatör Bitlik">
+                        <div class="description">E-postaların "Gönderden" alanında görünecek ad</div>
+                    </div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="smtp_from_email">Gönderen E-posta</label>
+                        <input type="email" id="smtp_from_email" name="smtp_from_email" value="<?php echo esc_attr($smtp_from_email); ?>" placeholder="noreply@example.com">
+                        <div class="description">E-postaları göndereceği e-posta adresi</div>
+                    </div>
+                </div>
+                
+                <!-- Mail Şablonları Sekmesi -->
+                <div id="templates" class="ativ-settings-content">
+                    <h2>📝 E-posta Şablonları</h2>
+                    <p>İlan gönderimi, onayı ve reddi için e-posta şablonlarını özelleştirin.</p>
+                    
+                    <div class="ativ-template-variables">
+                        <strong>Kullanılabilir Değişkenler:</strong><br>
+                        {title} - İlan başlığı<br>
+                        {category} - İlan kategorisi<br>
+                        {seller_name} - Satıcı adı<br>
+                        {listing_url} - İlana erişim linki<br>
+                        {rejection_reason} - Red nedeni (sadece red şablonunda)<br>
+                        {admin_email} - Yönetici e-postası
+                    </div>
+                    
+                    <div class="ativ-settings-section-title">İlan Gönderimi Şablonu</div>
+                    <div class="ativ-form-group">
+                        <label for="mail_template_listing_submitted">İlan gönderiildikçe kullanıcıya gönderilecek e-posta</label>
+                        <textarea id="mail_template_listing_submitted" name="mail_template_listing_submitted"><?php echo esc_textarea($mail_template_listing_submitted); ?></textarea>
+                    </div>
+                    
+                    <div class="ativ-settings-section-title">İlan Onayı Şablonu</div>
+                    <div class="ativ-form-group">
+                        <label for="mail_template_listing_approved">İlan onaylandığında kullanıcıya gönderilecek e-posta</label>
+                        <textarea id="mail_template_listing_approved" name="mail_template_listing_approved"><?php echo esc_textarea($mail_template_listing_approved); ?></textarea>
+                    </div>
+                    
+                    <div class="ativ-settings-section-title">İlan Reddi Şablonu</div>
+                    <div class="ativ-form-group">
+                        <label for="mail_template_listing_rejected">İlan reddedildiğinde kullanıcıya gönderilecek e-posta</label>
+                        <textarea id="mail_template_listing_rejected" name="mail_template_listing_rejected"><?php echo esc_textarea($mail_template_listing_rejected); ?></textarea>
+                    </div>
+                    
+                    <div class="ativ-settings-section-title">İlan Silinme Şablonları</div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="mail_template_listing_deleted">Kullanıcı tarafından silindiğinde gönderilecek e-posta</label>
+                        <textarea id="mail_template_listing_deleted" name="mail_template_listing_deleted"><?php echo esc_textarea($mail_template_listing_deleted); ?></textarea>
+                    </div>
+                    
+                    <div class="ativ-form-group">
+                        <label for="mail_template_listing_deleted_by_admin">Yönetici tarafından silindiğinde gönderilecek e-posta</label>
+                        <textarea id="mail_template_listing_deleted_by_admin" name="mail_template_listing_deleted_by_admin"><?php echo esc_textarea($mail_template_listing_deleted_by_admin); ?></textarea>
+                    </div>
+                </div>
+                
+                <div class="ativ-form-buttons">
+                    <button type="submit" class="ativ-btn-primary">💾 Ayarları Kaydet</button>
+                </div>
+            </form>
+        </div>
+        
+        <script>
+        function switchTab(e, tabName) {
+            e.preventDefault();
+            
+            // Tüm sekmeler ve içerik gizle
+            document.querySelectorAll('.ativ-settings-content').forEach(el => {
+                el.classList.remove('active');
+            });
+            document.querySelectorAll('.ativ-settings-tab').forEach(el => {
+                el.classList.remove('active');
+            });
+            
+            // Seçili sekme ve içeriği göster
+            document.getElementById(tabName).classList.add('active');
+            e.target.classList.add('active');
+        }
+        </script>
+        <?php
+    }
+    
+    /**
+     * Varsayılan mail şablonlarını döndür
+     */
+    private function get_default_template($type) {
+        $templates = array(
+            'submitted' => <<<'EOT'
+Merhaba {seller_name},
+
+İlan başarıyla gönderilmiştir. Yönetici tarafından incelenmesi bekleniyor.
+
+İlan Bilgileri:
+- Başlık: {title}
+- Kategori: {category}
+
+Lütfen sabırlı olun. Yönetici incelemesinden sonra size bilgilendirileceksiniz.
+
+Saygılarımızla,
+Amatör Bitlik Ekibi
+EOT,
+            'approved' => <<<'EOT'
+Merhaba {seller_name},
+
+Harika haber! İlanınız onaylanmıştır ve platform üzerinde yayında.
+
+İlan Bilgileri:
+- Başlık: {title}
+- Kategori: {category}
+
+İlana buradan erişebilirsiniz: {listing_url}
+
+Saygılarımızla,
+Amatör Bitlik Ekibi
+EOT,
+            'rejected' => <<<'EOT'
+Merhaba {seller_name},
+
+Maalesef, "{title}" adlı ilanınız reddedilmiştir.
+
+Red Nedeni:
+{rejection_reason}
+
+İlanı düzenleyerek tekrar gönderebilirsiniz. Lütfen belirtilen neden göz önünde bulundurunuz.
+
+Sorularınız için lütfen {admin_email} adresine yazın.
+
+Saygılarımızla,
+Amatör Bitlik Ekibi
+EOT,
+            'deleted' => <<<'EOT'
+Merhaba {seller_name},
+
+İlanınız "{title}" başarıyla silinmiştir.
+
+Eğer bu işlemi siz yapmadıysanız lütfen {admin_email} adresine yazın.
+
+Yeni ilanlar eklemek için platformumuzu ziyaret edebilirsiniz.
+
+Saygılarımızla,
+Amatör Bitlik Ekibi
+EOT,
+            'deleted_by_admin' => <<<'EOT'
+Merhaba {seller_name},
+
+Maalesef, "{title}" adlı ilanınız yönetici tarafından silinmiştir.
+
+Silme Nedeni:
+{deletion_reason}
+
+Sorularınız için lütfen {admin_email} adresine yazın.
+
+Saygılarımızla,
+Amatör Bitlik Ekibi
+EOT
+        );
+        
+        return $templates[$type] ?? '';
+    }
+    
+    /**
+     * Veritabanından şablon body'sini getir
+     */
+    private function get_template_body($template_key, $fallback_type) {
+        global $wpdb;
+        $templates_table = $wpdb->prefix . 'amator_telsiz_sablonlar';
+        
+        $template = $wpdb->get_row(
+            $wpdb->prepare("SELECT template_body FROM $templates_table WHERE template_key = %s", $template_key)
+        );
+        
+        if ($template && !empty($template->template_body)) {
+            return $template->template_body;
+        }
+        
+        // Fallback: varsayılan şablonu döndür
+        return $this->get_default_template($fallback_type);
+    }
+    
+    /**
+     * Varsayılan şablonları veritabanına ekle
+     */
+    private function insert_default_templates() {
+        global $wpdb;
+        $templates_table = $wpdb->prefix . 'amator_telsiz_sablonlar';
+        
+        $default_templates = array(
+            array(
+                'template_key' => 'listing_submitted',
+                'template_name' => 'İlan Gönderimi Bildirimi',
+                'template_subject' => 'İlanınız başarıyla gönderilmiştir',
+                'template_body' => $this->get_default_template('submitted'),
+                'template_description' => 'Kullanıcı yeni ilan gönderdiğinde gönderilen e-posta'
+            ),
+            array(
+                'template_key' => 'listing_approved',
+                'template_name' => 'İlan Onayı Bildirimi',
+                'template_subject' => 'İlanınız onaylanmıştır',
+                'template_body' => $this->get_default_template('approved'),
+                'template_description' => 'İlan yönetici tarafından onaylandığında gönderilen e-posta'
+            ),
+            array(
+                'template_key' => 'listing_rejected',
+                'template_name' => 'İlan Reddi Bildirimi',
+                'template_subject' => 'İlanınız reddedilmiştir',
+                'template_body' => $this->get_default_template('rejected'),
+                'template_description' => 'İlan yönetici tarafından reddedildiğinde gönderilen e-posta'
+            ),
+            array(
+                'template_key' => 'listing_deleted',
+                'template_name' => 'İlan Silinme Bildirimi (Kullanıcı Tarafından)',
+                'template_subject' => 'İlanınız silinmiştir',
+                'template_body' => $this->get_default_template('deleted'),
+                'template_description' => 'Kullanıcı ilan sildiğinde gönderilen e-posta'
+            ),
+            array(
+                'template_key' => 'listing_deleted_by_admin',
+                'template_name' => 'İlan Silinme Bildirimi (Yönetici Tarafından)',
+                'template_subject' => 'İlanınız yönetici tarafından silinmiştir',
+                'template_body' => $this->get_default_template('deleted_by_admin'),
+                'template_description' => 'Yönetici ilan sildiğinde gönderilen e-posta'
+            )
+        );
+        
+        foreach ($default_templates as $template) {
+            $existing = $wpdb->get_row(
+                $wpdb->prepare("SELECT id FROM $templates_table WHERE template_key = %s", $template['template_key'])
+            );
+            
+            if (!$existing) {
+                $wpdb->insert($templates_table, $template);
+            }
+        }
+    }
+    
+    /**
+     * SMTP yapılandırmasını getir
+     */
+    public function get_smtp_settings() {
+        global $wpdb;
+        $settings_table = $wpdb->prefix . 'amator_telsiz_ayarlar';
+        
+        $settings = $wpdb->get_row("SELECT * FROM $settings_table LIMIT 1");
+        
+        return $settings ? (array) $settings : array(
+            'smtp_host' => 'smtp.gmail.com',
+            'smtp_port' => 587,
+            'smtp_username' => '',
+            'smtp_password' => '',
+            'smtp_from_name' => 'Amatör Bitlik',
+            'smtp_from_email' => get_option('admin_email'),
+            'enable_notifications' => 1
+        );
+    }
+    
+    /**
+     * E-posta şablonunu değişkenleriyle birlikte getir
+     */
+    public function get_mail_template($template_key) {
+        global $wpdb;
+        $templates_table = $wpdb->prefix . 'amator_telsiz_sablonlar';
+        
+        $template = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM $templates_table WHERE template_key = %s", $template_key)
+        );
+        
+        return $template ? (array) $template : null;
     }
 }
 
