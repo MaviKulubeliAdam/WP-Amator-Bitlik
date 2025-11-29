@@ -790,92 +790,529 @@ class AmateurTelsizIlanVitrini {
         $table_name = $wpdb->prefix . 'amator_ilanlar';
         
         // Sayfalama
-        $per_page = 20;
+        $per_page = 15;
         $current_page = isset($_GET['paged']) ? intval($_GET['paged']) : 1;
         $offset = ($current_page - 1) * $per_page;
         
-        // Arama filtresi
+        // Arama ve filtreler
         $search = isset($_GET['s']) ? sanitize_text_field($_GET['s']) : '';
-        $where = '';
+        $category_filter = isset($_GET['category']) ? sanitize_text_field($_GET['category']) : '';
+        
+        // WHERE şartlarını oluştur
+        $where_clauses = array();
+        $where_params = array();
+        
         if ($search) {
-            $where = $wpdb->prepare(" WHERE title LIKE %s OR description LIKE %s", '%' . $search . '%', '%' . $search . '%');
+            $where_clauses[] = "(title LIKE %s OR description LIKE %s OR seller_name LIKE %s)";
+            $where_params[] = '%' . $search . '%';
+            $where_params[] = '%' . $search . '%';
+            $where_params[] = '%' . $search . '%';
         }
         
-        $total = $wpdb->get_var("SELECT COUNT(*) FROM $table_name" . $where);
-        $listings = $wpdb->get_results("SELECT * FROM $table_name" . $where . " ORDER BY created_at DESC LIMIT $per_page OFFSET $offset", ARRAY_A);
+        if ($category_filter) {
+            $where_clauses[] = "category = %s";
+            $where_params[] = $category_filter;
+        }
+        
+        // WHERE cümlesini ve parametreleri hazırla
+        $where_sql = '';
+        if (!empty($where_clauses)) {
+            $where_sql = ' WHERE ' . implode(' AND ', $where_clauses);
+        }
+        
+        // Parametreleri ekle (LIMIT ve OFFSET için)
+        $where_params[] = $per_page;
+        $where_params[] = $offset;
+        
+        // İstatistikler
+        if (!empty($where_clauses)) {
+            $total = $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $table_name" . $where_sql, array_slice($where_params, 0, count($where_params) - 2)));
+        } else {
+            $total = $wpdb->get_var("SELECT COUNT(*) FROM $table_name");
+        }
+        
+        $this_month = $wpdb->get_var("SELECT COUNT(*) FROM $table_name WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)");
+        $total_users = $wpdb->get_var("SELECT COUNT(DISTINCT user_id) FROM $table_name");
+        $total_amount = $wpdb->get_var("SELECT SUM(price) FROM $table_name");
+        
+        // Kategorileri al
+        $categories = array(
+            'transceiver' => 'Telsiz',
+            'antenna' => 'Anten',
+            'amplifier' => 'Amplifikatör',
+            'accessory' => 'Aksesuar',
+            'other' => 'Diğer'
+        );
+        
+        $category_counts = $wpdb->get_results("SELECT category, COUNT(*) as count FROM $table_name GROUP BY category", ARRAY_A);
+        $category_map = array();
+        foreach ($category_counts as $cc) {
+            $category_map[$cc['category']] = $cc['count'];
+        }
+        
+        // İlanları getir
+        $query = "SELECT * FROM $table_name" . $where_sql . " ORDER BY created_at DESC LIMIT %d OFFSET %d";
+        $listings = $wpdb->get_results($wpdb->prepare($query, $where_params), ARRAY_A);
         
         $total_pages = ceil($total / $per_page);
         
         ?>
-        <div class="wrap">
-            <h1>Amatör Bitlik - İlan Yönetimi</h1>
+        <div class="wrap ativ-admin-wrap">
+            <style>
+            .ativ-admin-wrap {
+                background: #f8f9fa;
+                padding: 20px 0 !important;
+            }
             
-            <form method="get" action="">
-                <input type="hidden" name="page" value="ativ-listings">
-                <p>
-                    <input type="search" name="s" value="<?php echo esc_attr($search); ?>" placeholder="İlan ara...">
-                    <input type="submit" class="button" value="Ara">
-                </p>
-            </form>
+            .ativ-admin-header {
+                background: linear-gradient(135deg, #0073aa 0%, #005a87 100%);
+                color: white;
+                padding: 30px;
+                border-radius: 8px;
+                margin: 0 20px 30px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
             
-            <table class="widefat striped">
-                <thead>
-                    <tr>
-                        <th style="width: 5%;">ID</th>
-                        <th style="width: 25%;">Başlık</th>
-                        <th style="width: 15%;">Kategori</th>
-                        <th style="width: 15%;">Kullanıcı</th>
-                        <th style="width: 15%;">Fiyat</th>
-                        <th style="width: 20%;">Tarih</th>
-                        <th style="width: 5%;">İşlemler</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if ($listings) : ?>
-                        <?php foreach ($listings as $listing) : 
-                            $user_info = get_userdata($listing['user_id']);
-                            $user_name = $user_info ? $user_info->display_name : 'Bilinmiyor';
-                        ?>
+            .ativ-admin-header h1 {
+                color: white;
+                margin: 0 0 10px 0;
+                font-size: 28px;
+            }
+            
+            .ativ-admin-header p {
+                margin: 0;
+                opacity: 0.9;
+                font-size: 14px;
+            }
+            
+            .ativ-stats-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin: 0 20px 30px;
+            }
+            
+            .ativ-stat-card {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                border-left: 4px solid #0073aa;
+                transition: all 0.3s ease;
+            }
+            
+            .ativ-stat-card:hover {
+                box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+                transform: translateY(-2px);
+            }
+            
+            .ativ-stat-card.stat-total {
+                border-left-color: #0073aa;
+            }
+            
+            .ativ-stat-card.stat-month {
+                border-left-color: #17a2b8;
+            }
+            
+            .ativ-stat-card.stat-users {
+                border-left-color: #28a745;
+            }
+            
+            .ativ-stat-card.stat-revenue {
+                border-left-color: #ffc107;
+            }
+            
+            .ativ-stat-label {
+                font-size: 12px;
+                color: #666;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 8px;
+            }
+            
+            .ativ-stat-value {
+                font-size: 32px;
+                font-weight: bold;
+                color: #333;
+            }
+            
+            .ativ-stat-icon {
+                font-size: 24px;
+                margin-right: 10px;
+                opacity: 0.6;
+            }
+            
+            .ativ-filters {
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                margin: 0 20px 20px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                display: flex;
+                gap: 15px;
+                flex-wrap: wrap;
+                align-items: flex-end;
+            }
+            
+            .ativ-filter-group {
+                flex: 1;
+                min-width: 200px;
+            }
+            
+            .ativ-filter-group label {
+                display: block;
+                font-weight: 600;
+                margin-bottom: 5px;
+                font-size: 13px;
+                color: #333;
+            }
+            
+            .ativ-filter-group input,
+            .ativ-filter-group select {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            
+            .ativ-filter-group input:focus,
+            .ativ-filter-group select:focus {
+                outline: none;
+                border-color: #0073aa;
+                box-shadow: 0 0 0 3px rgba(0,115,170,0.1);
+            }
+            
+            .ativ-filter-buttons {
+                display: flex;
+                gap: 10px;
+            }
+            
+            .ativ-table-container {
+                background: white;
+                border-radius: 8px;
+                margin: 0 20px 30px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                overflow: hidden;
+            }
+            
+            .ativ-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 13px;
+            }
+            
+            .ativ-table thead {
+                background: #f5f5f5;
+                border-bottom: 2px solid #e0e0e0;
+            }
+            
+            .ativ-table th {
+                padding: 15px;
+                text-align: left;
+                font-weight: 600;
+                color: #333;
+                text-transform: uppercase;
+                font-size: 12px;
+                letter-spacing: 0.5px;
+            }
+            
+            .ativ-table td {
+                padding: 15px;
+                border-bottom: 1px solid #e8e8e8;
+            }
+            
+            .ativ-table tbody tr {
+                transition: background-color 0.2s ease;
+            }
+            
+            .ativ-table tbody tr:hover {
+                background-color: #f9f9f9;
+            }
+            
+            .ativ-listing-title {
+                font-weight: 600;
+                color: #0073aa;
+                margin-bottom: 5px;
+            }
+            
+            .ativ-listing-desc {
+                font-size: 12px;
+                color: #999;
+                margin-top: 5px;
+            }
+            
+            .ativ-category-badge {
+                display: inline-block;
+                padding: 4px 10px;
+                border-radius: 20px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+            }
+            
+            .ativ-category-transceiver { background: #e3f2fd; color: #1976d2; }
+            .ativ-category-antenna { background: #f3e5f5; color: #7b1fa2; }
+            .ativ-category-amplifier { background: #e8f5e9; color: #388e3c; }
+            .ativ-category-accessory { background: #fff3e0; color: #e65100; }
+            .ativ-category-other { background: #f5f5f5; color: #666; }
+            
+            .ativ-status-new { background: #d4edda; color: #155724; padding: 4px 8px; border-radius: 4px; font-size: 11px; }
+            .ativ-status-old { background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 4px; font-size: 11px; }
+            
+            .ativ-actions {
+                display: flex;
+                gap: 8px;
+            }
+            
+            .ativ-btn {
+                padding: 6px 12px;
+                border: none;
+                border-radius: 4px;
+                font-size: 12px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-weight: 600;
+            }
+            
+            .ativ-btn-edit {
+                background: #0073aa;
+                color: white;
+            }
+            
+            .ativ-btn-edit:hover {
+                background: #005a87;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 8px rgba(0,115,170,0.3);
+            }
+            
+            .ativ-btn-delete {
+                background: #dc3545;
+                color: white;
+            }
+            
+            .ativ-btn-delete:hover {
+                background: #c82333;
+                transform: translateY(-1px);
+                box-shadow: 0 2px 8px rgba(220,53,69,0.3);
+            }
+            
+            .ativ-pagination {
+                display: flex;
+                gap: 5px;
+                justify-content: center;
+                margin: 30px 20px;
+                flex-wrap: wrap;
+            }
+            
+            .ativ-pagination a,
+            .ativ-pagination span {
+                padding: 8px 12px;
+                border-radius: 4px;
+                border: 1px solid #ddd;
+                text-decoration: none;
+                font-size: 13px;
+                font-weight: 600;
+                transition: all 0.2s ease;
+            }
+            
+            .ativ-pagination a:hover {
+                background: #0073aa;
+                color: white;
+                border-color: #0073aa;
+            }
+            
+            .ativ-pagination .current {
+                background: #0073aa;
+                color: white;
+                border-color: #0073aa;
+            }
+            
+            .ativ-no-results {
+                text-align: center;
+                padding: 40px 20px;
+                color: #999;
+            }
+            
+            .ativ-no-results p {
+                font-size: 16px;
+                margin: 0;
+            }
+            </style>
+            
+            <div class="ativ-admin-header">
+                <h1>📻 Amatör Bitlik - İlan Yönetimi</h1>
+                <p>Platform üzerinde yayınlanan tüm ilanları yönet ve kontrol et</p>
+            </div>
+            
+            <!-- İstatistikler -->
+            <div class="ativ-stats-grid">
+                <div class="ativ-stat-card stat-total">
+                    <div class="ativ-stat-label"><span class="ativ-stat-icon">📋</span> Toplam İlan</div>
+                    <div class="ativ-stat-value"><?php echo $total; ?></div>
+                </div>
+                <div class="ativ-stat-card stat-month">
+                    <div class="ativ-stat-label"><span class="ativ-stat-icon">📅</span> Bu Ayda Eklenen</div>
+                    <div class="ativ-stat-value"><?php echo $this_month; ?></div>
+                </div>
+                <div class="ativ-stat-card stat-users">
+                    <div class="ativ-stat-label"><span class="ativ-stat-icon">👥</span> Aktif Kullanıcı</div>
+                    <div class="ativ-stat-value"><?php echo $total_users; ?></div>
+                </div>
+                <div class="ativ-stat-card stat-revenue">
+                    <div class="ativ-stat-label"><span class="ativ-stat-icon">💰</span> Toplam Değer</div>
+                    <div class="ativ-stat-value"><?php echo number_format($total_amount, 0); ?> TRY</div>
+                </div>
+            </div>
+            
+            <!-- Kategoriler Özeti -->
+            <div class="ativ-stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 30px;">
+                <?php foreach ($categories as $cat_key => $cat_name) : ?>
+                    <div class="ativ-stat-card" style="border-left-color: #ddd; cursor: pointer;" onclick="document.querySelector('select[name=category]').value='<?php echo $cat_key; ?>'; document.querySelector('form').submit();">
+                        <div class="ativ-stat-label"><?php echo $cat_name; ?></div>
+                        <div class="ativ-stat-value"><?php echo $category_map[$cat_key] ?? 0; ?></div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+            
+            <!-- Arama ve Filtreler -->
+            <div class="ativ-filters">
+                <form method="get" action="" style="display: flex; gap: 15px; width: 100%; flex-wrap: wrap; align-items: flex-end;">
+                    <input type="hidden" name="page" value="ativ-listings">
+                    
+                    <div class="ativ-filter-group" style="min-width: 250px;">
+                        <label>🔍 İlan Ara</label>
+                        <input type="search" name="s" value="<?php echo esc_attr($search); ?>" placeholder="Başlık, açıklama, satıcı adı...">
+                    </div>
+                    
+                    <div class="ativ-filter-group" style="min-width: 200px;">
+                        <label>📂 Kategori</label>
+                        <select name="category">
+                            <option value="">Tümü</option>
+                            <?php foreach ($categories as $cat_key => $cat_name) : ?>
+                                <option value="<?php echo $cat_key; ?>" <?php selected($category_filter, $cat_key); ?>>
+                                    <?php echo $cat_name; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    
+                    <div class="ativ-filter-buttons">
+                        <input type="submit" class="ativ-btn ativ-btn-edit" value="🔎 Filtrele">
+                        <a href="?page=ativ-listings" class="ativ-btn ativ-btn-edit" style="text-decoration: none; text-align: center;">↺ Temizle</a>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- İlan Tablosu -->
+            <div class="ativ-table-container">
+                <?php if ($listings) : ?>
+                    <table class="ativ-table">
+                        <thead>
                             <tr>
-                                <td><?php echo $listing['id']; ?></td>
-                                <td>
-                                    <strong><?php echo esc_html($listing['title']); ?></strong>
-                                    <br><small><?php echo esc_html(substr($listing['description'], 0, 50)) . '...'; ?></small>
-                                </td>
-                                <td><?php echo esc_html($this->get_category_name($listing['category'])); ?></td>
-                                <td><?php echo esc_html($user_name); ?></td>
-                                <td><?php echo number_format($listing['price'], 2); ?> <?php echo esc_html($listing['currency']); ?></td>
-                                <td><?php echo esc_html(date('d.m.Y H:i', strtotime($listing['created_at']))); ?></td>
-                                <td>
-                                    <button class="button button-small" onclick="openAdminEditModal(<?php echo $listing['id']; ?>)">Düzenle</button>
-                                    <a class="button button-small button-link-delete" href="<?php echo wp_nonce_url(admin_url('admin.php?page=ativ-listings&action=delete&id=' . $listing['id']), 'ativ_delete_' . $listing['id']); ?>" onclick="return confirm('Bu ilanı silmek istediğinizden emin misiniz?')">Sil</a>
-                                </td>
+                                <th style="width: 5%;">ID</th>
+                                <th style="width: 30%;">İlan Bilgisi</th>
+                                <th style="width: 12%;">Kategori</th>
+                                <th style="width: 12%;">Satıcı</th>
+                                <th style="width: 12%;">Fiyat</th>
+                                <th style="width: 15%;">Tarih</th>
+                                <th style="width: 14%;">İşlemler</th>
                             </tr>
-                        <?php endforeach; ?>
-                    <?php else : ?>
-                        <tr>
-                            <td colspan="7" style="text-align: center; padding: 20px;">İlan bulunamadı.</td>
-                        </tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($listings as $listing) : 
+                                $user_info = get_userdata($listing['user_id']);
+                                $user_name = $user_info ? $user_info->display_name : 'Bilinmiyor';
+                                
+                                // Görseli al
+                                $images = $this->get_listing_images($listing['id'], $listing['images']);
+                                $image_url = !empty($images) ? $images[0]['data'] : '';
+                                
+                                // Yeniliği kontrol et
+                                $created = strtotime($listing['created_at']);
+                                $days_ago = floor((time() - $created) / 86400);
+                                $is_new = $days_ago < 7;
+                                
+                                // Renk
+                                $category_class = 'ativ-category-' . $listing['category'];
+                            ?>
+                                <tr>
+                                    <td><strong>#<?php echo $listing['id']; ?></strong></td>
+                                    <td>
+                                        <div style="display: flex; gap: 10px; align-items: center;">
+                                            <?php if ($image_url) : ?>
+                                                <img src="<?php echo esc_url($image_url); ?>" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px; flex-shrink: 0;">
+                                            <?php else : ?>
+                                                <div style="width: 50px; height: 50px; background: #f0f0f0; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">📸</div>
+                                            <?php endif; ?>
+                                            <div style="flex: 1; min-width: 0;">
+                                                <div class="ativ-listing-title"><?php echo esc_html($listing['title']); ?></div>
+                                                <div class="ativ-listing-desc"><?php echo esc_html(substr($listing['description'], 0, 60)); ?>...</div>
+                                                <?php if ($is_new) : ?>
+                                                    <span class="ativ-status-new">🆕 Yeni</span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span class="ativ-category-badge <?php echo $category_class; ?>"><?php echo esc_html($this->get_category_name($listing['category'])); ?></span></td>
+                                    <td>
+                                        <strong><?php echo esc_html($user_name); ?></strong>
+                                        <div style="font-size: 11px; color: #999; margin-top: 3px;"><?php echo esc_html($listing['callsign']); ?></div>
+                                    </td>
+                                    <td>
+                                        <strong><?php echo number_format($listing['price'], 0); ?></strong>
+                                        <div style="font-size: 11px; color: #999;"><?php echo esc_html($listing['currency']); ?></div>
+                                    </td>
+                                    <td>
+                                        <div><?php echo esc_html(date('d.m.Y', strtotime($listing['created_at']))); ?></div>
+                                        <div style="font-size: 11px; color: #999;"><?php echo esc_html(date('H:i', strtotime($listing['created_at']))); ?></div>
+                                    </td>
+                                    <td>
+                                        <div class="ativ-actions">
+                                            <button class="ativ-btn ativ-btn-edit" onclick="openAdminEditModal(<?php echo $listing['id']; ?>)">✏️ Düzenle</button>
+                                            <a class="ativ-btn ativ-btn-delete" href="<?php echo wp_nonce_url(admin_url('admin.php?page=ativ-listings&action=delete&id=' . $listing['id']), 'ativ_delete_' . $listing['id']); ?>" onclick="return confirm('Bu ilanı silmek istediğinizden emin misiniz?')">🗑️ Sil</a>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php else : ?>
+                    <div class="ativ-no-results">
+                        <p style="font-size: 48px; margin-bottom: 10px;">🔍</p>
+                        <p><strong>İlan bulunamadı</strong></p>
+                        <p style="font-size: 14px; margin-top: 10px; color: #ccc;">Arama kriterlerine uygun ilan yok</p>
+                    </div>
+                <?php endif; ?>
+            </div>
             
             <?php if ($total_pages > 1) : ?>
-                <div class="pagination" style="margin-top: 20px;">
+                <div class="ativ-pagination">
                     <?php 
+                    $search_param = $search ? '&s=' . urlencode($search) : '';
+                    $category_param = $category_filter ? '&category=' . urlencode($category_filter) : '';
+                    
+                    // Önceki
+                    if ($current_page > 1) {
+                        echo '<a href="' . esc_url(admin_url('admin.php?page=ativ-listings&paged=' . ($current_page - 1) . $search_param . $category_param)) . '">← Önceki</a>';
+                    }
+                    
+                    // Sayfalar
                     for ($i = 1; $i <= $total_pages; $i++) {
-                        $class = $i === $current_page ? 'button-primary' : '';
-                        $search_param = $search ? '&s=' . urlencode($search) : '';
-                        echo '<a class="button ' . $class . '" href="' . esc_url(admin_url('admin.php?page=ativ-listings&paged=' . $i . $search_param)) . '">' . $i . '</a> ';
+                        if ($i === $current_page) {
+                            echo '<span class="current">' . $i . '</span>';
+                        } else {
+                            echo '<a href="' . esc_url(admin_url('admin.php?page=ativ-listings&paged=' . $i . $search_param . $category_param)) . '">' . $i . '</a>';
+                        }
+                    }
+                    
+                    // Sonraki
+                    if ($current_page < $total_pages) {
+                        echo '<a href="' . esc_url(admin_url('admin.php?page=ativ-listings&paged=' . ($current_page + 1) . $search_param . $category_param)) . '">Sonraki →</a>';
                     }
                     ?>
                 </div>
             <?php endif; ?>
-            
-            <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-left: 4px solid #0073aa;">
-                <p><strong>İstatistikler:</strong></p>
-                <p>Toplam İlan: <strong><?php echo $total; ?></strong></p>
-            </div>
         </div>
         
         <style>
@@ -886,10 +1323,27 @@ class AmateurTelsizIlanVitrini {
                 left: 0;
                 right: 0;
                 bottom: 0;
-                background: rgba(0, 0, 0, 0.7);
+                background: rgba(0, 0, 0, 0.5);
                 z-index: 10000;
                 align-items: center;
                 justify-content: center;
+                animation: fadeIn 0.3s ease;
+            }
+            
+            @keyframes fadeIn {
+                from { background: rgba(0, 0, 0, 0); }
+                to { background: rgba(0, 0, 0, 0.5); }
+            }
+            
+            @keyframes slideUp {
+                from { 
+                    opacity: 0;
+                    transform: translateY(30px);
+                }
+                to { 
+                    opacity: 1;
+                    transform: translateY(0);
+                }
             }
             
             .admin-edit-modal.active {
@@ -898,32 +1352,178 @@ class AmateurTelsizIlanVitrini {
             
             .admin-edit-modal-content {
                 background: white;
-                border-radius: 8px;
+                border-radius: 12px;
                 width: 90%;
-                max-width: 800px;
+                max-width: 850px;
                 max-height: 90vh;
                 overflow-y: auto;
-                padding: 30px;
-                box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+                padding: 40px;
+                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                animation: slideUp 0.3s ease;
             }
             
             .admin-edit-modal-header {
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                margin-bottom: 20px;
+                margin-bottom: 30px;
+                padding-bottom: 20px;
+                border-bottom: 2px solid #f0f0f0;
+            }
+            
+            .admin-edit-modal-header h2 {
+                margin: 0;
+                color: #333;
+                font-size: 24px;
             }
             
             .admin-edit-modal-close {
                 background: none;
                 border: none;
-                font-size: 28px;
+                font-size: 32px;
                 cursor: pointer;
-                color: #999;
+                color: #ccc;
+                width: 40px;
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 50%;
+                transition: all 0.2s ease;
             }
             
             .admin-edit-modal-close:hover {
+                background: #f0f0f0;
                 color: #333;
+            }
+            
+            #adminEditForm {
+                font-size: 14px;
+            }
+            
+            #adminEditForm label {
+                display: block;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: #333;
+            }
+            
+            #adminEditForm input,
+            #adminEditForm select,
+            #adminEditForm textarea {
+                width: 100%;
+                padding: 10px 12px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                font-size: 14px;
+                font-family: inherit;
+                transition: all 0.2s ease;
+            }
+            
+            #adminEditForm input:focus,
+            #adminEditForm select:focus,
+            #adminEditForm textarea:focus {
+                outline: none;
+                border-color: #0073aa;
+                box-shadow: 0 0 0 4px rgba(0, 115, 170, 0.1);
+            }
+            
+            #adminEditForm > div {
+                margin-bottom: 20px;
+            }
+            
+            #adminImageGallery {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+                gap: 12px;
+                padding: 20px;
+                background: #f9f9f9;
+                border-radius: 8px;
+                border: 2px dashed #ddd;
+            }
+            
+            .admin-image-item {
+                position: relative;
+                aspect-ratio: 1;
+                overflow: hidden;
+                border-radius: 8px;
+                background: #f0f0f0;
+                transition: all 0.2s ease;
+            }
+            
+            .admin-image-item img {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: block;
+            }
+            
+            .admin-image-delete-btn {
+                position: absolute;
+                top: 4px;
+                right: 4px;
+                background: #dc3545 !important;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 28px;
+                height: 28px;
+                padding: 0;
+                cursor: pointer;
+                font-size: 16px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+                box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+            }
+            
+            .admin-image-item:hover .admin-image-delete-btn {
+                display: flex !important;
+            }
+            
+            .admin-image-delete-btn:hover {
+                background: #c82333 !important;
+                transform: scale(1.1);
+                box-shadow: 0 4px 12px rgba(220, 53, 69, 0.4);
+            }
+            
+            #adminEditForm .ativ-form-buttons {
+                display: flex;
+                gap: 10px;
+                margin-top: 30px;
+                padding-top: 20px;
+                border-top: 2px solid #f0f0f0;
+            }
+            
+            #adminEditForm .ativ-form-buttons button {
+                flex: 1;
+                padding: 12px 20px;
+                border: none;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            
+            #adminEditForm .ativ-form-buttons button[type="submit"] {
+                background: linear-gradient(135deg, #0073aa 0%, #005a87 100%);
+                color: white;
+            }
+            
+            #adminEditForm .ativ-form-buttons button[type="submit"]:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 12px rgba(0, 115, 170, 0.3);
+            }
+            
+            #adminEditForm .ativ-form-buttons button[type="button"] {
+                background: #f0f0f0;
+                color: #333;
+            }
+            
+            #adminEditForm .ativ-form-buttons button[type="button"]:hover {
+                background: #e0e0e0;
             }
         </style>
         
@@ -942,6 +1542,9 @@ class AmateurTelsizIlanVitrini {
             const modal = document.getElementById('adminEditModal');
             const content = document.getElementById('adminEditContent');
             
+            // Loading göster
+            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;"><p style="font-size: 48px; margin: 0;">⏳</p><p>Yükleniyor...</p></div>';
+            
             // AJAX ile ilanı getir
             fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
                 method: 'POST',
@@ -955,12 +1558,14 @@ class AmateurTelsizIlanVitrini {
                 if (data.success) {
                     content.innerHTML = data.data;
                     modal.classList.add('active');
+                    // Body scroll'u deaktif et
+                    document.body.style.overflow = 'hidden';
                 } else {
-                    alert('İlan yüklenemedi: ' + (data.data || 'Hata'));
+                    content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc3545;"><p>❌ İlan yüklenemedi</p><p>' + (data.data || 'Bilinmeyen hata') + '</p></div>';
                 }
             })
             .catch(error => {
-                alert('Hata: ' + error);
+                content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc3545;"><p>❌ Hata</p><p>' + error + '</p></div>';
             });
         }
         
@@ -979,6 +1584,12 @@ class AmateurTelsizIlanVitrini {
                     name: imageData.split('/').pop() // Dosya adı
                 });
             });
+            
+            // Submit butonunu deaktif et
+            const submitBtn = form.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '⏳ Kaydediliyor...';
             
             // AJAX ile güncelle
             fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
@@ -1000,25 +1611,39 @@ class AmateurTelsizIlanVitrini {
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    alert('İlan başarıyla güncellendi');
-                    closeAdminEditModal();
-                    location.reload();
+                    // Başarı animasyonu
+                    submitBtn.textContent = '✅ Kaydedildi!';
+                    submitBtn.style.background = '#28a745';
+                    setTimeout(() => {
+                        closeAdminEditModal();
+                        location.reload();
+                    }, 1500);
                 } else {
-                    alert('Hata: ' + (data.data || 'Bilinmeyen hata'));
+                    alert('❌ Hata: ' + (data.data || 'Bilinmeyen hata'));
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalText;
                 }
             })
             .catch(error => {
-                alert('Hata: ' + error);
+                alert('❌ Hata: ' + error);
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             });
         }
         
         function closeAdminEditModal() {
-            document.getElementById('adminEditModal').classList.remove('active');
+            const modal = document.getElementById('adminEditModal');
+            modal.classList.remove('active');
+            // Body scroll'u etkinleştir
+            document.body.style.overflow = 'auto';
         }
         
         function removeImageFromForm(btn) {
-            btn.closest('.admin-image-item').remove();
-            updateImageCount();
+            btn.closest('.admin-image-item').style.animation = 'fadeOut 0.3s ease forwards';
+            setTimeout(() => {
+                btn.closest('.admin-image-item').remove();
+                updateImageCount();
+            }, 300);
         }
         
         function updateImageCount() {
@@ -1027,11 +1652,42 @@ class AmateurTelsizIlanVitrini {
         }
         
         // Modal dışına tıklandığında kapat
-        document.getElementById('adminEditModal')?.addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeAdminEditModal();
+        document.addEventListener('DOMContentLoaded', function() {
+            const modal = document.getElementById('adminEditModal');
+            if (modal) {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === this) {
+                        closeAdminEditModal();
+                    }
+                });
             }
         });
+        
+        // ESC tuşu ile kapat
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('adminEditModal');
+                if (modal && modal.classList.contains('active')) {
+                    closeAdminEditModal();
+                }
+            }
+        });
+        
+        // Fade out animasyonu ekle
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeOut {
+                from {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+                to {
+                    opacity: 0;
+                    transform: scale(0.8);
+                }
+            }
+        `;
+        document.head.appendChild(style);
         </script>
         <?php
     }
@@ -1094,78 +1750,70 @@ class AmateurTelsizIlanVitrini {
         <form id="adminEditForm" onsubmit="submitAdminEditForm(event)">
             <input type="hidden" name="id" value="<?php echo $listing['id']; ?>">
             
-            <div style="margin-bottom: 15px;">
-                <label>Başlık</label>
-                <input type="text" name="title" value="<?php echo esc_attr($listing['title']); ?>" class="widefat" required>
+            <div>
+                <label>📌 Başlık</label>
+                <input type="text" name="title" value="<?php echo esc_attr($listing['title']); ?>" placeholder="İlan başlığı..." required>
             </div>
             
-            <div style="margin-bottom: 15px;">
-                <label>Kategori</label>
-                <select name="category" class="widefat" required>
-                    <option value="transceiver" <?php selected($listing['category'], 'transceiver'); ?>>Telsiz</option>
-                    <option value="antenna" <?php selected($listing['category'], 'antenna'); ?>>Anten</option>
-                    <option value="amplifier" <?php selected($listing['category'], 'amplifier'); ?>>Amplifikatör</option>
-                    <option value="accessory" <?php selected($listing['category'], 'accessory'); ?>>Aksesuar</option>
-                    <option value="other" <?php selected($listing['category'], 'other'); ?>>Diğer</option>
-                </select>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                 <div>
-                    <label>Marka</label>
-                    <input type="text" name="brand" value="<?php echo esc_attr($listing['brand']); ?>" class="widefat" required>
-                </div>
-                <div>
-                    <label>Model</label>
-                    <input type="text" name="model" value="<?php echo esc_attr($listing['model']); ?>" class="widefat" required>
-                </div>
-            </div>
-            
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                <div>
-                    <label>Durum</label>
-                    <select name="condition" class="widefat" required>
-                        <option value="Sıfır" <?php selected($listing['condition'], 'Sıfır'); ?>>Sıfır</option>
-                        <option value="Kullanılmış" <?php selected($listing['condition'], 'Kullanılmış'); ?>>Kullanılmış</option>
-                        <option value="Arızalı" <?php selected($listing['condition'], 'Arızalı'); ?>>Arızalı</option>
+                    <label>📂 Kategori</label>
+                    <select name="category" required>
+                        <option value="">Seçiniz...</option>
+                        <option value="transceiver" <?php selected($listing['category'], 'transceiver'); ?>>📻 Telsiz</option>
+                        <option value="antenna" <?php selected($listing['category'], 'antenna'); ?>>📡 Anten</option>
+                        <option value="amplifier" <?php selected($listing['category'], 'amplifier'); ?>>⚡ Amplifikatör</option>
+                        <option value="accessory" <?php selected($listing['category'], 'accessory'); ?>>🔧 Aksesuar</option>
+                        <option value="other" <?php selected($listing['category'], 'other'); ?>>❓ Diğer</option>
                     </select>
                 </div>
                 <div>
-                    <label>Fiyat</label>
-                    <input type="number" name="price" value="<?php echo $listing['price']; ?>" class="widefat" step="0.01" required>
+                    <label>💰 Fiyat</label>
+                    <input type="number" name="price" value="<?php echo $listing['price']; ?>" placeholder="0.00" step="0.01" required>
                 </div>
             </div>
             
-            <div style="margin-bottom: 15px;">
-                <label>Açıklama</label>
-                <textarea name="description" class="widefat" rows="6" required><?php echo esc_textarea($listing['description']); ?></textarea>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                <div>
+                    <label>🏢 Marka</label>
+                    <input type="text" name="brand" value="<?php echo esc_attr($listing['brand']); ?>" placeholder="Ürün markası..." required>
+                </div>
+                <div>
+                    <label>🎯 Model</label>
+                    <input type="text" name="model" value="<?php echo esc_attr($listing['model']); ?>" placeholder="Model numarası..." required>
+                </div>
             </div>
             
-            <div style="margin-bottom: 20px; padding: 15px; background: #f5f5f5; border-radius: 4px;">
-                <p><strong>Yüklü Görseller (<span id="imageCount"><?php echo count($listing['images']); ?></span> adet)</strong></p>
-                <div id="adminImageGallery" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;">
+            <div>
+                <label>✨ Durum</label>
+                <select name="condition" required>
+                    <option value="Sıfır" <?php selected($listing['condition'], 'Sıfır'); ?>>🆕 Sıfır - Hiç Kullanılmamış</option>
+                    <option value="Kullanılmış" <?php selected($listing['condition'], 'Kullanılmış'); ?>>✓ Kullanılmış - İyi Durumda</option>
+                    <option value="Arızalı" <?php selected($listing['condition'], 'Arızalı'); ?>>⚠️ Arızalı - Tamir Gerekli</option>
+                </select>
+            </div>
+            
+            <div>
+                <label>📝 Açıklama</label>
+                <textarea name="description" placeholder="İlan detaylarını yazınız..." rows="6" required><?php echo esc_textarea($listing['description']); ?></textarea>
+            </div>
+            
+            <div>
+                <label>🖼️ Yüklü Görseller (<span id="imageCount"><?php echo count($listing['images']); ?></span>/<span id="imageMax">10</span>)</label>
+                <div id="adminImageGallery">
                     <?php foreach ($listing['images'] as $index => $image) : ?>
-                        <div class="admin-image-item" style="position: relative; text-align: center; cursor: pointer; overflow: hidden; border-radius: 4px;">
-                            <img src="<?php echo esc_url($image['data']); ?>" style="width: 100%; height: 100px; object-fit: cover; border-radius: 4px; display: block;">
-                            <button type="button" class="admin-image-delete-btn" onclick="removeImageFromForm(this)" style="position: absolute; top: 5px; right: 5px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 24px; height: 24px; padding: 0; cursor: pointer; font-size: 16px; display: none; align-items: center; justify-content: center;">×</button>
+                        <div class="admin-image-item" title="Silmek için tıkla">
+                            <img src="<?php echo esc_url($image['data']); ?>" loading="lazy">
+                            <button type="button" class="admin-image-delete-btn" onclick="removeImageFromForm(this)" title="Bu görseli sil">×</button>
                             <input type="hidden" class="image-data" value="<?php echo esc_attr($image['data']); ?>">
                         </div>
                     <?php endforeach; ?>
                 </div>
             </div>
             
-            <style>
-            .admin-image-item:hover .admin-image-delete-btn {
-                display: flex !important;
-            }
-            .admin-image-delete-btn:hover {
-                background: #c82333 !important;
-            }
-            </style>
-            
-            <div style="display: flex; gap: 10px;">
-                <button type="submit" class="button button-primary">Güncelle</button>
-                <button type="button" class="button" onclick="closeAdminEditModal()">İptal</button>
+            <div class="ativ-form-buttons">
+                <button type="submit" title="Değişiklikleri kaydet">✅ Güncelle</button>
+                <button type="button" onclick="closeAdminEditModal()" title="Formu kapat">✕ İptal</button>
             </div>
         </form>
         <?php
