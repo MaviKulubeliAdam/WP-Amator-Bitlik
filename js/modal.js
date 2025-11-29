@@ -1245,14 +1245,14 @@ function renderMyListingsGrid(listings) {
                          '#28a745';
       
       return `
-        <div class="listing-row-wrapper">
-          <div class="listing-row" data-listing-id="${listing.id}" style="position: relative; border: 2px solid ${listing.status === 'rejected' ? '#dc3545' : (listing.status === 'pending' ? '#ffc107' : 'transparent')}; border-radius: 4px; display: flex; flex-wrap: wrap;">
+        <div class="listing-row-wrapper" style="display: flex; flex-direction: column;">
+          <div class="listing-row" data-listing-id="${listing.id}" style="position: relative; border: 2px solid ${listing.status === 'rejected' ? '#dc3545' : (listing.status === 'pending' ? '#ffc107' : '#28a745')}; border-radius: 4px; display: flex; flex-wrap: wrap; cursor: pointer;" onclick="toggleListingDetails(this.querySelector('.listing-row-title'))">
             <div class="listing-row-image">
               ${imageUrl ? `<img src="${imageUrl}" alt="${escapeHtml(listing.title)}">` : `<div class="listing-row-image-fallback">${listing.emoji || '📻'}</div>`}
             </div>
             <div class="listing-row-info" style="flex: 1; min-width: 0; overflow-wrap: break-word; word-wrap: break-word;">
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                <h3 class="listing-row-title" style="cursor: pointer; margin: 0;" onclick="toggleListingDetails(this)">${escapeHtml(listing.title)}</h3>
+                <h3 class="listing-row-title" style="cursor: pointer; margin: 0;">${escapeHtml(listing.title)}</h3>
                 <span style="background: ${statusColor}; color: white; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">${statusBadge}</span>
               </div>
               

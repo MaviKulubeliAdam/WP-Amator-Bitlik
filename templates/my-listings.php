@@ -81,8 +81,8 @@
               }
             }
           ?>
-          <div class="listing-row-wrapper">
-            <div class="listing-row" data-listing-id="<?php echo esc_attr($listing['id']); ?>" style="position: relative; border: 2px solid <?php echo ($listing['status'] === 'rejected' ? '#dc3545' : ($listing['status'] === 'pending' ? '#ffc107' : 'transparent')); ?>; border-radius: 4px; display: flex; flex-wrap: wrap;">
+          <div class="listing-row-wrapper" style="display: flex; flex-direction: column;">
+            <div class="listing-row" data-listing-id="<?php echo esc_attr($listing['id']); ?>" style="position: relative; border: 2px solid <?php echo ($listing['status'] === 'rejected' ? '#dc3545' : ($listing['status'] === 'pending' ? '#ffc107' : '#28a745')); ?>; border-radius: 4px; display: flex; flex-wrap: wrap; cursor: pointer;" onclick="toggleListingDetails(this.querySelector('.listing-row-title'))">
               <div class="listing-row-image">
                 <?php if ($image_url): ?>
                   <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($listing['title']); ?>">
@@ -92,7 +92,7 @@
               </div>
               <div class="listing-row-info" style="flex: 1; min-width: 0; overflow-wrap: break-word; word-wrap: break-word;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                  <h3 class="listing-row-title" style="cursor: pointer; margin: 0;" onclick="toggleListingDetails(this)"><?php echo esc_html($listing['title']); ?></h3>
+                  <h3 class="listing-row-title" style="cursor: pointer; margin: 0;"><?php echo esc_html($listing['title']); ?></h3>
                   <?php if ($listing['status'] === 'rejected'): ?>
                     <span style="background: #dc3545; color: white; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">❌ Reddedildi</span>
                   <?php elseif ($listing['status'] === 'pending'): ?>
