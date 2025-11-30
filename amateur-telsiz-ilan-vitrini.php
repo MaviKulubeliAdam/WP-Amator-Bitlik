@@ -324,8 +324,7 @@ class AmateurTelsizIlanVitrini {
         
         // GÜVENLİK: Admin işlemleri için nonce kontrolü
         if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
-            // Eski uyumluluk için referrer kontrolü
-            check_admin_referer('ativ_admin_nonce', '_wpnonce');
+            wp_send_json_error('Güvenlik doğrulaması başarısız');
         }
         
         $id = intval($_POST['id'] ?? 0);
@@ -348,7 +347,7 @@ class AmateurTelsizIlanVitrini {
         
         // GÜVENLİK: Admin işlemleri için nonce kontrolü
         if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
-            check_admin_referer('ativ_admin_nonce', '_wpnonce');
+            wp_send_json_error('Güvenlik doğrulaması başarısız');
         }
         
         $id = intval($_POST['id'] ?? 0);
@@ -364,7 +363,7 @@ class AmateurTelsizIlanVitrini {
         
         // GÜVENLİK: Admin işlemleri için nonce kontrolü
         if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
-            check_admin_referer('ativ_admin_nonce', '_wpnonce');
+            wp_send_json_error('Güvenlik doğrulaması başarısız');
         }
         
         $id = intval($_POST['id'] ?? 0);
@@ -427,7 +426,7 @@ class AmateurTelsizIlanVitrini {
         
         // GÜVENLİK: Admin işlemleri için nonce kontrolü
         if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
-            check_admin_referer('ativ_admin_nonce', '_wpnonce');
+            wp_send_json_error('Güvenlik doğrulaması başarısız');
         }
         
         $id = intval($_POST['id'] ?? 0);
@@ -762,19 +761,34 @@ class AmateurTelsizIlanVitrini {
         }
         
         // GÜVENLİK: Gerçek MIME tipi kontrolü - dosya içeriğini doğrula
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $detected_mime = $finfo->buffer($image_data);
-        $allowed_mimes = array(
-            'image/jpeg',
-            'image/jpg',
-            'image/png',
-            'image/gif',
-            'image/webp'
-        );
-        
-        if (!in_array($detected_mime, $allowed_mimes)) {
-            error_log('ATIV Security: Geçersiz MIME tipi engellendi: ' . $detected_mime);
-            return false;
+        if (!class_exists('finfo')) {
+            error_log('ATIV Security: finfo uzantısı mevcut değil, getimagesizefromstring kullanılıyor');
+            // Alternatif yöntem: getimagesizefromstring kullanarak görsel olup olmadığını kontrol et
+            $image_info = @getimagesizefromstring($image_data);
+            if ($image_info === false) {
+                error_log('ATIV Security: Geçersiz görsel verisi engellendi');
+                return false;
+            }
+            $allowed_types = array(IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_GIF, IMAGETYPE_WEBP);
+            if (!in_array($image_info[2], $allowed_types)) {
+                error_log('ATIV Security: Geçersiz görsel tipi engellendi: ' . $image_info[2]);
+                return false;
+            }
+        } else {
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $detected_mime = $finfo->buffer($image_data);
+            $allowed_mimes = array(
+                'image/jpeg',
+                'image/jpg',
+                'image/png',
+                'image/gif',
+                'image/webp'
+            );
+            
+            if (!in_array($detected_mime, $allowed_mimes)) {
+                error_log('ATIV Security: Geçersiz MIME tipi engellendi: ' . $detected_mime);
+                return false;
+            }
         }
         
         // GÜVENLİK: Dosya boyutu kontrolü (max 5MB)
@@ -1063,7 +1077,14 @@ class AmateurTelsizIlanVitrini {
         $real_listing_dir = realpath($listing_dir);
         $real_upload_dir = realpath(ATIV_UPLOAD_DIR);
         
-        if ($real_listing_dir === false || $real_upload_dir === false) {
+        if ($real_listing_dir === false) {
+            // Klasör henüz mevcut olmayabilir - bu normal bir durum
+            error_log('ATIV: Listing klasörü bulunamadı (normal): ' . $listing_dir);
+            return false;
+        }
+        
+        if ($real_upload_dir === false) {
+            error_log('ATIV Error: Upload klasörü bulunamadı: ' . ATIV_UPLOAD_DIR);
             return false;
         }
         
@@ -2033,8 +2054,8 @@ class AmateurTelsizIlanVitrini {
         </div>
         
         <script>
-        // GÜVENLİK: Admin nonce'u
-        var ativAdminNonce = '<?php echo wp_create_nonce('ativ_admin_nonce'); ?>';
+        // GÜVENLİK: Admin nonce'u (esc_js ile XSS koruması)
+        var ativAdminNonce = '<?php echo esc_js(wp_create_nonce('ativ_admin_nonce')); ?>';
         
         function openAdminEditModal(id) {
             const modal = document.getElementById('adminEditModal');
