@@ -383,13 +383,18 @@ class AmateurTelsizIlanVitrini {
             // Duruma göre mail gönder
             if ($status === 'approved') {
                 $this->send_notification('listing_approved', array(
-                    'title' => $listing['title'],
+                    'title' => stripslashes(htmlspecialchars_decode($listing['title'], ENT_QUOTES)),
+                    'seller_name' => $listing['seller_name'],
+                    'category' => $this->get_category_name($listing['category']),
                     'listing_id' => $id
                 ), $listing['seller_email']);
             } elseif ($status === 'rejected') {
                 $this->send_notification('listing_rejected', array(
-                    'title' => $listing['title'],
+                    'title' => stripslashes(htmlspecialchars_decode($listing['title'], ENT_QUOTES)),
+                    'seller_name' => $listing['seller_name'],
+                    'category' => $this->get_category_name($listing['category']),
                     'rejection_reason' => $rejection_reason,
+                    'admin_email' => get_option('admin_email'),
                     'listing_id' => $id
                 ), $listing['seller_email']);
             }
@@ -397,6 +402,32 @@ class AmateurTelsizIlanVitrini {
             wp_send_json_success('Durum güncellendi');
         } else {
             wp_send_json_error('Durum güncellenirken hata oluştu');
+        }
+    }
+    
+    // Admin ilanı silme
+    if ($action === 'ativ_delete_listing_admin') {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Yetkisiz erişim');
+        }
+        
+        $id = intval($_POST['id'] ?? 0);
+        $deletion_reason = isset($_POST['deletion_reason']) ? wp_kses_post($_POST['deletion_reason']) : '';
+        
+        if (!$id) {
+            wp_send_json_error('Geçersiz ilan ID');
+        }
+        
+        if (empty($deletion_reason)) {
+            wp_send_json_error('Silme nedeni gerekli');
+        }
+        
+        $result = $this->delete_listing_admin($id, $deletion_reason);
+        
+        if ($result) {
+            wp_send_json_success('İlan silindi ve kullanıcıya bildirim gönderildi');
+        } else {
+            wp_send_json_error('İlan silinirken hata oluştu');
         }
     }
     
@@ -628,7 +659,9 @@ class AmateurTelsizIlanVitrini {
         
         // Kullanıcıya e-posta gönder - İlan gönderildi
         $this->send_notification('listing_submitted', array(
-            'title' => $insert_data['title'],
+            'title' => stripslashes(htmlspecialchars_decode($insert_data['title'], ENT_QUOTES)),
+            'seller_name' => $insert_data['seller_name'],
+            'category' => $this->get_category_name($insert_data['category']),
             'listing_id' => $listing_id,
             'status' => 'Onay Bekleniyor'
         ), $insert_data['seller_email']);
@@ -637,8 +670,8 @@ class AmateurTelsizIlanVitrini {
         $admin_email = get_option('admin_email');
         if (!empty($admin_email)) {
             $this->send_notification('admin_new_listing', array(
-                'title' => $insert_data['title'],
-                'category' => $insert_data['category'],
+                'title' => stripslashes(htmlspecialchars_decode($insert_data['title'], ENT_QUOTES)),
+                'category' => $this->get_category_name($insert_data['category']),
                 'seller_name' => $insert_data['seller_name'],
                 'seller_email' => $insert_data['seller_email'],
                 'price' => $insert_data['price'],
@@ -900,8 +933,8 @@ class AmateurTelsizIlanVitrini {
                 $updated_listing = $wpdb->get_row($wpdb->prepare("SELECT title, category, seller_name, seller_email, price, currency FROM $table_name WHERE id = %d", $id), ARRAY_A);
                 if ($updated_listing) {
                     $this->send_notification('admin_listing_updated', array(
-                        'title' => $updated_listing['title'],
-                        'category' => $updated_listing['category'],
+                        'title' => stripslashes(htmlspecialchars_decode($updated_listing['title'], ENT_QUOTES)),
+                        'category' => $this->get_category_name($updated_listing['category']),
                         'seller_name' => $updated_listing['seller_name'],
                         'seller_email' => $updated_listing['seller_email'],
                         'price' => $updated_listing['price'],
@@ -957,7 +990,10 @@ class AmateurTelsizIlanVitrini {
     if ($result) {
         // Kullanıcıya silme bildirimi gönder
         $this->send_notification('listing_deleted', array(
-            'title' => $existing_listing['title'],
+            'title' => stripslashes(htmlspecialchars_decode($existing_listing['title'], ENT_QUOTES)),
+            'seller_name' => $existing_listing['seller_name'],
+            'category' => $this->get_category_name($existing_listing['category']),
+            'admin_email' => get_option('admin_email'),
             'listing_id' => $id
         ), $existing_listing['seller_email']);
         
@@ -985,11 +1021,11 @@ class AmateurTelsizIlanVitrini {
 
     public static function get_category_name($category) {
         $categories = array(
-            'transceiver' => 'Telsiz',
-            'antenna' => 'Anten',
-            'amplifier' => 'Amplifikatör',
-            'accessory' => 'Aksesuar',
-            'other' => 'Diğer'
+            'transceiver' => '📻 Telsiz',
+            'antenna' => '📡 Anten',
+            'amplifier' => '⚡ Amplifikatör',
+            'accessory' => '🔧 Aksesuar',
+            'other' => '❓ Diğer'
         );
         return isset($categories[$category]) ? $categories[$category] : $category;
     }
@@ -1031,14 +1067,7 @@ class AmateurTelsizIlanVitrini {
      * Admin İlan Yönetim Sayfası
      */
     public function admin_listings_page() {
-        // Silme işlemi
-        if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
-            $id = intval($_GET['id']);
-            if (wp_verify_nonce($_GET['_wpnonce'] ?? '', 'ativ_delete_' . $id)) {
-                $this->delete_listing_admin($id);
-                echo '<div class="notice notice-success"><p>İlan başarıyla silindi.</p></div>';
-            }
-        }
+        // Silme işlemi - AJAX ile yapılacak, bu kod kaldırıldı
         
         // Tüm ilanları getir
         global $wpdb;
@@ -1605,7 +1634,7 @@ class AmateurTelsizIlanVitrini {
                                                 <button class="ativ-btn" style="background: #dc3545; color: white; font-size: 11px; padding: 4px 8px;" onclick="openRejectModal(<?php echo $listing['id']; ?>)">❌ Reddet</button>
                                             <?php endif; ?>
                                             <button class="ativ-btn ativ-btn-edit" style="font-size: 11px; padding: 4px 8px;" onclick="openAdminEditModal(<?php echo $listing['id']; ?>)">✏️ Düzenle</button>
-                                            <a class="ativ-btn ativ-btn-delete" style="font-size: 11px; padding: 4px 8px; text-align: center; text-decoration: none;" href="<?php echo wp_nonce_url(admin_url('admin.php?page=ativ-listings&action=delete&id=' . $listing['id']), 'ativ_delete_' . $listing['id']); ?>" onclick="return confirm('Bu ilanı silmek istediğinizden emin misiniz?')">🗑️ Sil</a>
+                                            <button class="ativ-btn ativ-btn-delete" style="font-size: 11px; padding: 4px 8px;" onclick="openDeleteModal(<?php echo $listing['id']; ?>, '<?php echo esc_js($listing['title']); ?>')">🗑️ Sil</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -1896,6 +1925,35 @@ class AmateurTelsizIlanVitrini {
             </div>
         </div>
         
+        <!-- Silme Modal -->
+        <div id="deleteModal" class="admin-edit-modal">
+            <div class="admin-edit-modal-content" style="max-width: 500px;">
+                <div class="admin-edit-modal-header">
+                    <h2>🗑️ İlan Sil</h2>
+                    <button class="admin-edit-modal-close" onclick="closeDeleteModal()">×</button>
+                </div>
+                <form id="deleteForm" onsubmit="submitDeleteForm(event)">
+                    <input type="hidden" id="deleteListingId" name="id">
+                    
+                    <div style="margin-bottom: 20px; padding: 15px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px;">
+                        <p style="margin: 0; color: #856404; font-size: 14px;">
+                            <strong id="deleteListingTitle"></strong> başlıklı ilanı silmek üzeresiniz. Bu işlem geri alınamaz.
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #333;">Silme Nedeni (Kullanıcıya gönderilecek)</label>
+                        <textarea id="deletionReason" name="deletion_reason" placeholder="Lütfen bu ilanı neden sildiğinizi açıklayın..." rows="5" required style="width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; transition: all 0.2s ease;" onblur="this.style.borderColor='#ddd'" onfocus="this.style.borderColor='#dc3545'; this.style.boxShadow='0 0 0 4px rgba(220, 53, 69, 0.1)'"></textarea>
+                    </div>
+                    
+                    <div class="ativ-form-buttons" style="display: flex; gap: 10px; margin-top: 20px; padding-top: 20px; border-top: 2px solid #f0f0f0;">
+                        <button type="submit" style="flex: 1; padding: 12px 20px; background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;" title="İlanı sil ve kullanıcıya bildir">🗑️ Sil</button>
+                        <button type="button" onclick="closeDeleteModal()" style="flex: 1; padding: 12px 20px; background: #f0f0f0; color: #333; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">İptal</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
         <script>
         function openAdminEditModal(id) {
             const modal = document.getElementById('adminEditModal');
@@ -2046,6 +2104,59 @@ class AmateurTelsizIlanVitrini {
             });
         }
         
+        function openDeleteModal(id, title) {
+            const modal = document.getElementById('deleteModal');
+            document.getElementById('deleteListingId').value = id;
+            document.getElementById('deleteListingTitle').textContent = title;
+            document.getElementById('deletionReason').value = '';
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+        
+        function closeDeleteModal() {
+            const modal = document.getElementById('deleteModal');
+            modal.classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+        
+        function submitDeleteForm(e) {
+            e.preventDefault();
+            
+            const id = document.getElementById('deleteListingId').value;
+            const reason = document.getElementById('deletionReason').value;
+            
+            if (!reason.trim()) {
+                alert('❌ Lütfen silme nedenini yazınız');
+                return;
+            }
+            
+            if (!confirm('Bu ilanı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.')) {
+                return;
+            }
+            
+            fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+                method: 'POST',
+                body: new URLSearchParams({
+                    action: 'ativ_ajax',
+                    action_type: 'ativ_delete_listing_admin',
+                    id: id,
+                    deletion_reason: reason
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    closeDeleteModal();
+                    location.reload();
+                } else {
+                    alert('❌ Hata: ' + (data.data || 'Bilinmeyen hata'));
+                }
+            })
+            .catch(error => {
+                alert('❌ Hata: ' + error);
+            });
+        }
+        
         function removeImageFromForm(btn) {
             btn.closest('.admin-image-item').style.animation = 'fadeOut 0.3s ease forwards';
             setTimeout(() => {
@@ -2131,7 +2242,7 @@ class AmateurTelsizIlanVitrini {
     /**
      * Admin tarafından ilanı sil
      */
-    private function delete_listing_admin($id) {
+    private function delete_listing_admin($id, $deletion_reason = '') {
         global $wpdb;
         $table_name = $wpdb->prefix . 'amator_ilanlar';
         
@@ -2164,7 +2275,11 @@ class AmateurTelsizIlanVitrini {
         // Admin tarafından silinme bildirim e-postası gönder
         if ($listing) {
             $this->send_notification('listing_deleted_by_admin', array(
-                'title' => $listing['title'],
+                'title' => stripslashes(htmlspecialchars_decode($listing['title'], ENT_QUOTES)),
+                'seller_name' => $listing['seller_name'],
+                'category' => $this->get_category_name($listing['category']),
+                'deletion_reason' => !empty($deletion_reason) ? $deletion_reason : 'Neden belirtilmemiş',
+                'admin_email' => get_option('admin_email'),
                 'listing_id' => $id
             ), $listing['seller_email']);
         }
@@ -3126,7 +3241,7 @@ Harika haber! İlanınız onaylanmıştır ve platform üzerinde yayında.
 - Başlık: {title}
 - Kategori: {category}
 
-İlana buradan erişebilirsiniz: {listing_url}
+Hesabınız üzerindeki "Benim İlanlarım" sayfasından ilanınızı görebilirsiniz.
 
 Saygılarımızla,
 Amatör Bitlik Ekibi
@@ -3134,7 +3249,11 @@ EOT,
             'rejected' => <<<'EOT'
 Merhaba {seller_name},
 
-Maalesef, "{title}" adlı ilanınız reddedilmiştir.
+Maalesef, ilanınız reddedilmiştir.
+
+İlan Bilgileri:
+- Başlık: {title}
+- Kategori: {category}
 
 Red Nedeni:
 {rejection_reason}
@@ -3568,6 +3687,10 @@ EOT
                 $subject = str_replace('[' . strtoupper($key) . ']', $value, $subject);
             }
         }
+        
+        // Escape karakterlerini temizle
+        $body = stripslashes($body);
+        $subject = stripslashes($subject);
         
         // HTML wrapper ekle
         $html_body = '

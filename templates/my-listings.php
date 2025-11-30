@@ -105,9 +105,8 @@
                 <!-- Red nedeni veya pending uyarısı -->
                 <?php if ($listing['status'] === 'rejected'): ?>
                 <div style="background: #ffebee; border-left: 3px solid #dc3545; padding: 10px; margin-bottom: 8px; border-radius: 2px; word-wrap: break-word; overflow-wrap: break-word;">
-                  <div style="color: #721c24; font-size: 12px; font-weight: bold; margin-bottom: 5px;">Red Nedeni:</div>
-                  <div style="color: #721c24; font-size: 12px; margin-bottom: 8px; word-wrap: break-word; overflow-wrap: break-word; white-space: pre-wrap;">
-                    <?php echo nl2br(esc_html($listing['rejection_reason'] ?? 'Neden belirtilmemiş')); ?>
+                  <div style="color: #721c24; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal;">
+                    <strong>Red Nedeni:</strong> <?php echo esc_html($listing['rejection_reason'] ?? 'Neden belirtilmemiş'); ?>
                   </div>
                   <div style="background: #fff3cd; border-left: 2px solid #ff9800; padding: 8px; border-radius: 2px; margin-top: 8px; word-wrap: break-word; overflow-wrap: break-word;">
                     <div style="color: #856404; font-size: 12px;">
