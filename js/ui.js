@@ -489,30 +489,15 @@ function toggleListingDetails(titleElement) {
 
   // Find the parent listing-row
   const listingRow = titleElement.closest('.listing-row');
-  if (!listingRow) {
-    console.error('listing-row not found');
-    return;
-  }
+  if (!listingRow) return;
 
   // Find the parent wrapper
   const wrapper = listingRow.closest('.listing-row-wrapper');
-  if (!wrapper) {
-    console.error('listing-row-wrapper not found');
-    return;
-  }
-
-  console.log('Wrapper found:', wrapper);
-  console.log('Wrapper innerHTML:', wrapper.innerHTML);
+  if (!wrapper) return;
 
   // Find all accordion sections within this wrapper
   const detailsElement = wrapper.querySelector('.listing-row-details-expanded');
-  if (!detailsElement) {
-    console.error('Accordion details element not found in wrapper', {
-      wrapper: wrapper,
-      children: wrapper.children
-    });
-    return;
-  }
+  if (!detailsElement) return;
 
   // Close any other open accordion sections
   document.querySelectorAll('.listing-row-details-expanded.expanded').forEach(element => {
@@ -522,13 +507,7 @@ function toggleListingDetails(titleElement) {
   });
 
   // Toggle current accordion
-  const isExpanded = detailsElement.classList.contains('expanded');
-  
-  if (isExpanded) {
-    detailsElement.classList.remove('expanded');
-  } else {
-    detailsElement.classList.add('expanded');
-  }
+  detailsElement.classList.toggle('expanded');
 }
 
 // Global window ataması - inline onclick handler'lar için gerekli

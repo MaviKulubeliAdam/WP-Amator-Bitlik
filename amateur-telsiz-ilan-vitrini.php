@@ -36,9 +36,7 @@ class AmateurTelsizIlanVitrini {
     }
     
     public function init() {
-        $this->create_tables();
-        $this->insert_default_exchange_rates();
-        $this->create_upload_dir();
+        // AJAX işleyicileri kaydet
         add_action('wp_ajax_ativ_ajax', array($this, 'handle_ajax'));
         add_action('wp_ajax_nopriv_ativ_ajax', array($this, 'handle_ajax'));
         
@@ -813,11 +811,7 @@ class AmateurTelsizIlanVitrini {
     ];
     foreach ($field_map_text as $post_key => $db_key) {
         if (array_key_exists($post_key, $data)) {
-            if ($post_key === 'currency') {
-                $update_data[$db_key] = sanitize_text_field($data[$post_key]);
-            } else {
-                $update_data[$db_key] = sanitize_text_field($data[$post_key]);
-            }
+            $update_data[$db_key] = sanitize_text_field($data[$post_key]);
         }
     }
     if (array_key_exists('seller_email', $data)) {

@@ -588,13 +588,6 @@
   font-weight: 600;
 }
 
-/* Accordion list wrapper */
-.listings-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
 /* Responsive accordion */
 @media (max-width: 768px) {
   .listing-row-details-expanded {
