@@ -219,8 +219,6 @@ async function openEditListingModal(listingOrId) {
     return;
   }
 
-  console.log('[DEBUG] openEditListingModal resolved listing id:', listing.id, 'user_id:', listing.user_id);
-
   // Use a shallow copy to avoid accidental mutation of the global allListings item
   editingListing = Object.assign({}, listing);
   
@@ -482,7 +480,6 @@ async function handleFormSubmit(e) {
  * İlan düzenleme fonksiyonu
  */
 window.editListing = async function(id) {
-  console.log('[DEBUG] editListing called with id:', id, 'typeof:', typeof id);
   // My-listings veya gallery'den gelmiş olabilir
   let listing = null;
   const idNum = Number(id);
@@ -500,10 +497,8 @@ window.editListing = async function(id) {
   }
   
   if (listing) {
-    console.log('[DEBUG] editListing resolved listing id:', listing.id, 'user_id:', listing.user_id);
     openEditListingModal(listing);
   } else {
-    console.warn('[DEBUG] editListing could not find listing for id:', idNum);
     alert('İlan bilgisi yüklenemedi');
   }
 };
@@ -1354,12 +1349,9 @@ function renderMyListingsGrid(listings) {
  */
 async function refreshMyListingsGrid() {
   try {
-    console.log('[DEBUG] refreshMyListingsGrid başlıyor...');
     const gridElement = document.getElementById('myListingsGrid');
-    console.log('[DEBUG] myListingsGrid element:', gridElement);
     
     if (!gridElement) {
-      console.error('myListingsGrid elementi bulunamadı!');
       return;
     }
 
@@ -1374,8 +1366,6 @@ async function refreshMyListingsGrid() {
     });
 
     const result = await response.json();
-
-    console.log('[DEBUG] refreshMyListingsGrid sonuç:', result);
 
     if (result.success && result.data) {
       const listings = result.data;
@@ -1458,11 +1448,9 @@ window.editMyListing = async function(id) {
     });
     
     const data = await response.json();
-    console.log('[DEBUG editMyListing] Response:', data);
     
     if (data.success && Array.isArray(data.data)) {
       const listing = data.data.find(l => Number(l.id) === Number(id));
-      console.log('[DEBUG editMyListing] Found listing:', listing);
       
       if (listing) {
         // Görselleri formatla
@@ -1515,12 +1503,10 @@ window.editMyListing = async function(id) {
         
         return;
       }
-    } else {
-      console.error('[DEBUG editMyListing] API Error:', data.data);
     }
     alert('İlan yüklenemedi');
   } catch (e) {
-    console.error('[DEBUG editMyListing] Exception:', e);
+    console.error('İlan yüklenirken hata:', e);
     alert('İlan yüklenirken hata oluştu');
   }
 };
