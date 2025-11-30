@@ -382,12 +382,12 @@ class AmateurTelsizIlanVitrini {
         if ($result !== false) {
             // Duruma göre mail gönder
             if ($status === 'approved') {
-                $this->send_notification('approved', array(
+                $this->send_notification('listing_approved', array(
                     'title' => $listing['title'],
                     'listing_id' => $id
                 ), $listing['seller_email']);
             } elseif ($status === 'rejected') {
-                $this->send_notification('rejected', array(
+                $this->send_notification('listing_rejected', array(
                     'title' => $listing['title'],
                     'rejection_reason' => $rejection_reason,
                     'listing_id' => $id
@@ -627,11 +627,25 @@ class AmateurTelsizIlanVitrini {
         $wpdb->update($table_name, $update_data, array('id' => $listing_id));
         
         // Kullanıcıya e-posta gönder - İlan gönderildi
-        $this->send_notification('submitted', array(
+        $this->send_notification('listing_submitted', array(
             'title' => $insert_data['title'],
             'listing_id' => $listing_id,
             'status' => 'Onay Bekleniyor'
         ), $insert_data['seller_email']);
+        
+        // Yöneticiye e-posta gönder - Yeni ilan bildirimi
+        $admin_email = get_option('admin_email');
+        if (!empty($admin_email)) {
+            $this->send_notification('admin_new_listing', array(
+                'title' => $insert_data['title'],
+                'category' => $insert_data['category'],
+                'seller_name' => $insert_data['seller_name'],
+                'seller_email' => $insert_data['seller_email'],
+                'price' => $insert_data['price'],
+                'currency' => $currency,
+                'listing_id' => $listing_id
+            ), $admin_email);
+        }
         
         wp_send_json_success(array('id' => $listing_id, 'message' => 'İlan başarıyla eklendi'));
     } else {
@@ -858,9 +872,16 @@ class AmateurTelsizIlanVitrini {
     }
     
     // Red edilen ilanı düzenleniyorsa status'u pending'e ayarla ve rejection_reason'u temizle
+    $was_rejected = false;
+    $was_approved = false;
     if (!empty($existing_listing['status']) && $existing_listing['status'] === 'rejected') {
         $update_data['status'] = 'pending';
         $update_data['rejection_reason'] = null;
+        $was_rejected = true;
+    } elseif (!empty($existing_listing['status']) && $existing_listing['status'] === 'approved') {
+        // Onaylı ilan düzenleniyorsa tekrar pending'e dönüştür
+        $update_data['status'] = 'pending';
+        $was_approved = true;
     }
 
     // Değişecek veri yoksa başarı döndür (no-op)
@@ -871,6 +892,25 @@ class AmateurTelsizIlanVitrini {
     $result = $wpdb->update($table_name, $update_data, array('id' => $id));
     
     if ($result !== false) {
+        // Reddedilmiş ilan güncellenip tekrar gönderildiyse yöneticiye bildirim gönder
+        if ($was_rejected || $was_approved) {
+            $admin_email = get_option('admin_email');
+            if (!empty($admin_email)) {
+                // Güncel verileri al
+                $updated_listing = $wpdb->get_row($wpdb->prepare("SELECT title, category, seller_name, seller_email, price, currency FROM $table_name WHERE id = %d", $id), ARRAY_A);
+                if ($updated_listing) {
+                    $this->send_notification('admin_listing_updated', array(
+                        'title' => $updated_listing['title'],
+                        'category' => $updated_listing['category'],
+                        'seller_name' => $updated_listing['seller_name'],
+                        'seller_email' => $updated_listing['seller_email'],
+                        'price' => $updated_listing['price'],
+                        'currency' => $updated_listing['currency'],
+                        'listing_id' => $id
+                    ), $admin_email);
+                }
+            }
+        }
         wp_send_json_success(array('message' => 'İlan başarıyla güncellendi'));
     } else {
         wp_send_json_error('İlan güncellenirken hata oluştu: ' . $wpdb->last_error);
@@ -916,7 +956,7 @@ class AmateurTelsizIlanVitrini {
     
     if ($result) {
         // Kullanıcıya silme bildirimi gönder
-        $this->send_notification('deleted', array(
+        $this->send_notification('listing_deleted', array(
             'title' => $existing_listing['title'],
             'listing_id' => $id
         ), $existing_listing['seller_email']);
@@ -2123,7 +2163,7 @@ class AmateurTelsizIlanVitrini {
         
         // Admin tarafından silinme bildirim e-postası gönder
         if ($listing) {
-            $this->send_notification('deleted_by_admin', array(
+            $this->send_notification('listing_deleted_by_admin', array(
                 'title' => $listing['title'],
                 'listing_id' => $id
             ), $listing['seller_email']);
@@ -2214,6 +2254,38 @@ class AmateurTelsizIlanVitrini {
                             <input type="hidden" class="image-data" value="<?php echo esc_attr($image['data']); ?>">
                         </div>
                     <?php endforeach; ?>
+                </div>
+            </div>
+            
+            <!-- Satıcı Bilgileri - Salt Okunur -->
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px; border-left: 4px solid #667eea;">
+                <h3 style="margin-top: 0; color: #333;">👤 Satıcı Bilgileri (Salt Okunur)</h3>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                    <div>
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #666;">Satıcı Adı</label>
+                        <input type="text" value="<?php echo esc_attr($listing['seller_name']); ?>" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #333;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #666;">Çağrı İşareti</label>
+                        <input type="text" value="<?php echo esc_attr($listing['callsign']); ?>" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #333;">
+                    </div>
+                </div>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 15px;">
+                    <div>
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #666;">E-posta</label>
+                        <input type="email" value="<?php echo esc_attr($listing['seller_email']); ?>" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #333;">
+                    </div>
+                    <div>
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #666;">Telefon</label>
+                        <input type="text" value="<?php echo esc_attr($listing['seller_phone']); ?>" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #333;">
+                    </div>
+                </div>
+                
+                <div style="margin-top: 15px;">
+                    <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #666;">Konum</label>
+                    <input type="text" value="<?php echo esc_attr($listing['location']); ?>" readonly style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; background: #fff; color: #333;">
                 </div>
             </div>
             
@@ -2338,6 +2410,14 @@ class AmateurTelsizIlanVitrini {
                 'listing_deleted_by_admin' => array(
                     'name' => 'İlan Silinme Bildirimi (Yönetici Tarafından)',
                     'body' => sanitize_textarea_field($_POST['mail_template_listing_deleted_by_admin'] ?? '')
+                ),
+                'admin_new_listing' => array(
+                    'name' => 'Yöneticiye Yeni İlan Bildirimi',
+                    'body' => sanitize_textarea_field($_POST['mail_template_admin_new_listing'] ?? '')
+                ),
+                'admin_listing_updated' => array(
+                    'name' => 'Yöneticiye İlan Güncelleme Bildirimi',
+                    'body' => sanitize_textarea_field($_POST['mail_template_admin_listing_updated'] ?? '')
                 )
             );
             
@@ -2384,6 +2464,8 @@ class AmateurTelsizIlanVitrini {
         $mail_template_listing_rejected = $this->get_template_body('listing_rejected', 'rejected');
         $mail_template_listing_deleted = $this->get_template_body('listing_deleted', 'deleted');
         $mail_template_listing_deleted_by_admin = $this->get_template_body('listing_deleted_by_admin', 'deleted_by_admin');
+        $mail_template_admin_new_listing = $this->get_template_body('admin_new_listing', 'admin_new_listing');
+        $mail_template_admin_listing_updated = $this->get_template_body('admin_listing_updated', 'admin_listing_updated');
         
         ?>
         <div class="wrap ativ-settings-wrap">
@@ -2685,6 +2767,34 @@ class AmateurTelsizIlanVitrini {
                         <label for="mail_template_listing_deleted_by_admin">Yönetici tarafından silindiğinde gönderilecek e-posta</label>
                         <textarea id="mail_template_listing_deleted_by_admin" name="mail_template_listing_deleted_by_admin"><?php echo esc_textarea($mail_template_listing_deleted_by_admin); ?></textarea>
                     </div>
+                    
+                    <hr style="margin: 40px 0; border: none; border-top: 2px solid #ddd;">
+                    
+                    <h3 style="margin-top: 30px; color: #0073aa;">👮 Yönetici Bildirimleri</h3>
+                    <p style="color: #666; margin-bottom: 20px;">Yöneticiye gönderilen e-posta şablonlarını özelleştirin.</p>
+                    
+                    <div class="ativ-template-variables">
+                        <strong>Yönetici Bildirimleri için Kullanılabilir Değişkenler:</strong><br>
+                        {title} - İlan başlığı<br>
+                        {category} - İlan kategorisi<br>
+                        {seller_name} - Satıcı adı<br>
+                        {seller_email} - Satıcı e-postası<br>
+                        {price} - İlan fiyatı<br>
+                        {currency} - Para birimi<br>
+                        {listing_id} - İlan ID'si
+                    </div>
+                    
+                    <div class="ativ-settings-section-title">Yeni İlan Bildirimi Şablonu</div>
+                    <div class="ativ-form-group">
+                        <label for="mail_template_admin_new_listing">Yeni ilan gönderildiğinde yöneticiye gönderilecek e-posta</label>
+                        <textarea id="mail_template_admin_new_listing" name="mail_template_admin_new_listing"><?php echo esc_textarea($mail_template_admin_new_listing); ?></textarea>
+                    </div>
+                    
+                    <div class="ativ-settings-section-title">İlan Güncelleme Bildirimi Şablonu</div>
+                    <div class="ativ-form-group">
+                        <label for="mail_template_admin_listing_updated">Reddedilen/onaylı ilan güncellendiğinde yöneticiye gönderilecek e-posta</label>
+                        <textarea id="mail_template_admin_listing_updated" name="mail_template_admin_listing_updated"><?php echo esc_textarea($mail_template_admin_listing_updated); ?></textarea>
+                    </div>
                 </div>
                 
                 <!-- Debug & Cron Sekmesi -->
@@ -2957,6 +3067,42 @@ class AmateurTelsizIlanVitrini {
      */
     private function get_default_template($type) {
         $templates = array(
+            'admin_new_listing' => <<<'EOT'
+Merhaba Yönetici,
+
+Yeni bir ilan gönderilmiştir ve onayınızı beklemektedir.
+
+İlan Bilgileri:
+- Başlık: {title}
+- Kategori: {category}
+- Satıcı Adı: {seller_name}
+- Satıcı E-postası: {seller_email}
+- Fiyat: {price} {currency}
+- Durum: Onay Bekleniyor
+
+İlanı yönetim panelinden inceleyebilir ve onaylayabilir veya reddedebilirsiniz.
+
+Saygılarımızla,
+Amatör Bitlik Sistemi
+EOT,
+            'admin_listing_updated' => <<<'EOT'
+Merhaba Yönetici,
+
+Daha önce reddedilmiş olan bir ilan güncellenmiş ve tekrar onayınız için gönderilmiştir.
+
+Güncellenen İlan Bilgileri:
+- Başlık: {title}
+- Kategori: {category}
+- Satıcı Adı: {seller_name}
+- Satıcı E-postası: {seller_email}
+- Fiyat: {price} {currency}
+- Durum: Onay Bekleniyor
+
+İlanı yönetim panelinden inceleyebilir ve onaylayabilir veya reddedebilirsiniz.
+
+Saygılarımızla,
+Amatör Bitlik Sistemi
+EOT,
             'submitted' => <<<'EOT'
 Merhaba {seller_name},
 
@@ -3058,6 +3204,20 @@ EOT
         
         $default_templates = array(
             array(
+                'template_key' => 'admin_new_listing',
+                'template_name' => 'Yöneticiye Yeni İlan Bildirimi',
+                'template_subject' => '🆕 Yeni İlan: {title} - Onay Bekleniyor',
+                'template_body' => $this->get_default_template('admin_new_listing'),
+                'template_description' => 'Yeni ilan eklendiğinde yöneticilere gönderilen e-posta'
+            ),
+            array(
+                'template_key' => 'admin_listing_updated',
+                'template_name' => 'Yöneticiye İlan Güncelleme Bildirimi',
+                'template_subject' => '🔄 İlan Güncellendi: {title} - Tekrar Onay Bekleniyor',
+                'template_body' => $this->get_default_template('admin_listing_updated'),
+                'template_description' => 'Reddedilmiş ilan güncellendiğinde yöneticilere gönderilen e-posta'
+            ),
+            array(
                 'template_key' => 'listing_submitted',
                 'template_name' => 'İlan Gönderimi Bildirimi',
                 'template_subject' => 'İlanınız başarıyla gönderilmiştir',
@@ -3135,6 +3295,35 @@ EOT
         $template = $wpdb->get_row(
             $wpdb->prepare("SELECT * FROM $templates_table WHERE template_key = %s", $template_key)
         );
+        
+        // Şablon yoksa varsayılan şablonu kullan
+        if (!$template) {
+            error_log("ATIV: Veritabanında $template_key şablonu bulunamadı, varsayılan şablon kullanılacak");
+            
+            // Varsayılan template'leri kullan
+            $default_templates_map = array(
+                'listing_submitted' => array('key' => 'submitted', 'subject' => 'İlanınız başarıyla gönderilmiştir'),
+                'listing_approved' => array('key' => 'approved', 'subject' => 'İlanınız onaylanmıştır'),
+                'listing_rejected' => array('key' => 'rejected', 'subject' => 'İlanınız reddedilmiştir'),
+                'listing_deleted' => array('key' => 'deleted', 'subject' => 'İlanınız silinmiştir'),
+                'listing_deleted_by_admin' => array('key' => 'deleted_by_admin', 'subject' => 'İlanınız yönetici tarafından silinmiştir'),
+                'admin_new_listing' => array('key' => 'admin_new_listing', 'subject' => '🆕 Yeni İlan: - Onay Bekleniyor'),
+                'admin_listing_updated' => array('key' => 'admin_listing_updated', 'subject' => '🔄 İlan Güncellendi: - Tekrar Onay Bekleniyor'),
+            );
+            
+            if (isset($default_templates_map[$template_key])) {
+                $map = $default_templates_map[$template_key];
+                $template = (object) array(
+                    'template_key' => $template_key,
+                    'template_name' => $template_key,
+                    'template_subject' => $map['subject'],
+                    'template_body' => $this->get_default_template($map['key']),
+                    'template_description' => ''
+                );
+            } else {
+                return null;
+            }
+        }
         
         return $template ? (array) $template : null;
     }
@@ -3350,9 +3539,11 @@ EOT
      */
     public function send_notification($template_key, $variables = array(), $recipient_email = '') {
         if (empty($recipient_email)) {
-            error_log('ATIV Notification: Alıcı e-postası boş');
+            error_log('ATIV Notification: Alıcı e-postası boş - template_key: ' . $template_key);
             return false;
         }
+        
+        error_log('ATIV Notification: ' . $template_key . ' şablonuyla ' . $recipient_email . ' adresine bildirim gönderiliyor...');
         
         // Şablonu al
         $template = $this->get_mail_template($template_key);
@@ -3362,13 +3553,17 @@ EOT
             return false;
         }
         
-        // Konu ve içeriği al
+        error_log('ATIV Notification: Şablon bulundu - Konu: ' . ($template['template_subject'] ?? 'YOK'));
         $subject = $template['template_subject'] ?? '';
         $body = $template['template_body'] ?? '';
         
-        // Değişkenleri değiştir
+        // Değişkenleri değiştir - hem {key} hem de [KEY] formatlarını destekle
         if (!empty($variables)) {
             foreach ($variables as $key => $value) {
+                // {key} formatı
+                $body = str_replace('{' . $key . '}', $value, $body);
+                $subject = str_replace('{' . $key . '}', $value, $subject);
+                // [KEY] formatı (geriye dönük uyumluluk)
                 $body = str_replace('[' . strtoupper($key) . ']', $value, $body);
                 $subject = str_replace('[' . strtoupper($key) . ']', $value, $subject);
             }
@@ -3405,7 +3600,15 @@ EOT
         </html>';
         
         // Mail gönder
-        return $this->send_mail($recipient_email, $subject, $html_body);
+        $result = $this->send_mail($recipient_email, $subject, $html_body);
+        
+        if ($result) {
+            error_log('ATIV Notification: ' . $template_key . ' şablonuyla ' . $recipient_email . ' adresine bildirim başarıyla gönderildi!');
+        } else {
+            error_log('ATIV Notification: ' . $template_key . ' şablonuyla ' . $recipient_email . ' adresine bildirim gönderilemedi!');
+        }
+        
+        return $result;
     }
     
     /**

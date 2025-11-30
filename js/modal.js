@@ -223,6 +223,9 @@ async function openEditListingModal(listingOrId) {
 
   // Use a shallow copy to avoid accidental mutation of the global allListings item
   editingListing = Object.assign({}, listing);
+  
+  // Flag'i ilanın statüsüne göre ayarla
+  isEditingRejectedListing = (listing.status === 'rejected' || listing.status === 'approved');
 
   // Populate modal fields
   document.getElementById('formTitle').value = listing.title || '';
@@ -264,7 +267,12 @@ async function openEditListingModal(listingOrId) {
   document.getElementById('addListingModal').style.display = 'flex';
   document.body.style.overflow = 'hidden';
   document.querySelector('.modal-header h2').textContent = 'İlanı Düzenle';
-  document.getElementById('formSubmitBtn').textContent = 'Değişiklikleri Kaydet';
+  
+  // Buton textini ilanın statüsüne göre ayarla
+  const submitBtnText = (listing.status === 'rejected' || listing.status === 'approved') ? 
+    'Değişiklikleri Kaydet ve Tekrar Onaya Gönder' : 
+    'Değişiklikleri Kaydet';
+  document.getElementById('formSubmitBtn').textContent = submitBtnText;
 
   updatePreview();
 }
@@ -1465,9 +1473,9 @@ window.editMyListing = async function(id) {
           }));
         }
         
-        // Düzenleme modu ve red flag'ini ayarla
+        // Düzenleme modu ve red/onaylı flag'ini ayarla
         editingListing = Object.assign({}, listing);
-        isEditingRejectedListing = true;
+        isEditingRejectedListing = (listing.status === 'rejected' || listing.status === 'approved');
         
         // Form alanlarını doldur
         document.getElementById('formTitle').value = listing.title || '';
@@ -1494,9 +1502,17 @@ window.editMyListing = async function(id) {
         renderImagePreviews();
         updatePreview();
         
-        // Modal aç
+        // Modal aç ve buton textini statüye göre ayarla
         document.getElementById('addListingModal').style.display = 'flex';
         document.body.style.overflow = 'hidden';
+        document.querySelector('.modal-header h2').textContent = 'İlanı Düzenle';
+        
+        // Buton textini ilanın statüsüne göre ayarla
+        const submitBtnText = (listing.status === 'rejected' || listing.status === 'approved') ? 
+          'Değişiklikleri Kaydet ve Tekrar Onaya Gönder' : 
+          'Değişiklikleri Kaydet';
+        document.getElementById('formSubmitBtn').textContent = submitBtnText;
+        
         return;
       }
     } else {
