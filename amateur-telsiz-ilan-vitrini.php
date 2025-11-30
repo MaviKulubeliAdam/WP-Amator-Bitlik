@@ -322,6 +322,12 @@ class AmateurTelsizIlanVitrini {
             wp_send_json_error('Yetkisiz erişim');
         }
         
+        // GÜVENLİK: Admin işlemleri için nonce kontrolü
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
+            // Eski uyumluluk için referrer kontrolü
+            check_admin_referer('ativ_admin_nonce', '_wpnonce');
+        }
+        
         $id = intval($_POST['id'] ?? 0);
         $listing = $this->get_listing_by_id($id);
         
@@ -340,6 +346,11 @@ class AmateurTelsizIlanVitrini {
             wp_send_json_error('Yetkisiz erişim');
         }
         
+        // GÜVENLİK: Admin işlemleri için nonce kontrolü
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
+            check_admin_referer('ativ_admin_nonce', '_wpnonce');
+        }
+        
         $id = intval($_POST['id'] ?? 0);
         $this->update_listing_admin($id, $_POST);
         wp_send_json_success('İlan güncellendi');
@@ -349,6 +360,11 @@ class AmateurTelsizIlanVitrini {
     if ($action === 'ativ_change_listing_status') {
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Yetkisiz erişim');
+        }
+        
+        // GÜVENLİK: Admin işlemleri için nonce kontrolü
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
+            check_admin_referer('ativ_admin_nonce', '_wpnonce');
         }
         
         $id = intval($_POST['id'] ?? 0);
@@ -407,6 +423,11 @@ class AmateurTelsizIlanVitrini {
     if ($action === 'ativ_delete_listing_admin') {
         if (!current_user_can('manage_options')) {
             wp_send_json_error('Yetkisiz erişim');
+        }
+        
+        // GÜVENLİK: Admin işlemleri için nonce kontrolü
+        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
+            check_admin_referer('ativ_admin_nonce', '_wpnonce');
         }
         
         $id = intval($_POST['id'] ?? 0);
@@ -716,12 +737,21 @@ class AmateurTelsizIlanVitrini {
     }
     
     private function save_base64_image($listing_id, $base64_data, $image_number) {
+        // İzin verilen dosya uzantıları - GÜVENLİK: Sadece görsel formatlarına izin ver
+        $allowed_extensions = array('jpg', 'jpeg', 'png', 'gif', 'webp');
+        
         // Base64 formatını kontrol et ve düzenle
         if (preg_match('/^data:image\/(\w+);base64,/', $base64_data, $matches)) {
-            $image_type = $matches[1];
+            $image_type = strtolower($matches[1]);
             $base64_data = substr($base64_data, strpos($base64_data, ',') + 1);
         } else {
             $image_type = 'jpg';
+        }
+        
+        // GÜVENLİK: Dosya uzantısını doğrula - zararlı uzantıları engelle
+        if (!in_array($image_type, $allowed_extensions)) {
+            error_log('ATIV Security: Geçersiz dosya uzantısı engellendi: ' . $image_type);
+            return false;
         }
         
         $base64_data = str_replace(' ', '+', $base64_data);
@@ -731,9 +761,32 @@ class AmateurTelsizIlanVitrini {
             return false;
         }
         
+        // GÜVENLİK: Gerçek MIME tipi kontrolü - dosya içeriğini doğrula
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $detected_mime = $finfo->buffer($image_data);
+        $allowed_mimes = array(
+            'image/jpeg',
+            'image/jpg',
+            'image/png',
+            'image/gif',
+            'image/webp'
+        );
+        
+        if (!in_array($detected_mime, $allowed_mimes)) {
+            error_log('ATIV Security: Geçersiz MIME tipi engellendi: ' . $detected_mime);
+            return false;
+        }
+        
+        // GÜVENLİK: Dosya boyutu kontrolü (max 5MB)
+        $max_size = 5 * 1024 * 1024;
+        if (strlen($image_data) > $max_size) {
+            error_log('ATIV Security: Dosya boyutu çok büyük: ' . strlen($image_data) . ' bytes');
+            return false;
+        }
+        
         // Dosya adını oluştur: [ilan-id]P[numara].[uzanti]
-        $file_name = $listing_id . 'P' . sprintf('%02d', $image_number) . '.' . $image_type;
-        $file_path = ATIV_UPLOAD_DIR . $listing_id . '/' . $file_name;
+        $file_name = intval($listing_id) . 'P' . sprintf('%02d', intval($image_number)) . '.' . $image_type;
+        $file_path = ATIV_UPLOAD_DIR . intval($listing_id) . '/' . $file_name;
         
         if (file_put_contents($file_path, $image_data)) {
             return $file_name;
@@ -998,12 +1051,43 @@ class AmateurTelsizIlanVitrini {
 }
     
     private function delete_listing_images($listing_id, $image_files) {
+        // GÜVENLİK: listing_id'yi integer olarak doğrula
+        $listing_id = intval($listing_id);
+        if ($listing_id <= 0) {
+            return false;
+        }
+        
         $listing_dir = ATIV_UPLOAD_DIR . $listing_id;
         
+        // GÜVENLİK: Klasörün gerçekten upload dizini içinde olduğunu doğrula
+        $real_listing_dir = realpath($listing_dir);
+        $real_upload_dir = realpath(ATIV_UPLOAD_DIR);
+        
+        if ($real_listing_dir === false || $real_upload_dir === false) {
+            return false;
+        }
+        
+        if (strpos($real_listing_dir, $real_upload_dir) !== 0) {
+            error_log('ATIV Security: Path traversal engellendi: ' . $listing_dir);
+            return false;
+        }
+        
         foreach ($image_files as $image_file) {
-            $file_path = $listing_dir . '/' . $image_file;
-            if (file_exists($file_path)) {
-                unlink($file_path);
+            // GÜVENLİK: Path traversal engelle - sadece basit dosya adlarına izin ver
+            $clean_filename = basename($image_file);
+            if ($clean_filename !== $image_file || strpos($image_file, '..') !== false) {
+                error_log('ATIV Security: Geçersiz dosya adı engellendi: ' . $image_file);
+                continue;
+            }
+            
+            $file_path = $listing_dir . '/' . $clean_filename;
+            
+            // GÜVENLİK: Dosyanın gerçekten listing klasörü içinde olduğunu doğrula
+            $real_file_path = realpath($file_path);
+            if ($real_file_path !== false && strpos($real_file_path, $real_listing_dir) === 0) {
+                if (file_exists($real_file_path)) {
+                    unlink($real_file_path);
+                }
             }
         }
         
@@ -1949,6 +2033,9 @@ class AmateurTelsizIlanVitrini {
         </div>
         
         <script>
+        // GÜVENLİK: Admin nonce'u
+        var ativAdminNonce = '<?php echo wp_create_nonce('ativ_admin_nonce'); ?>';
+        
         function openAdminEditModal(id) {
             const modal = document.getElementById('adminEditModal');
             const content = document.getElementById('adminEditContent');
@@ -1962,7 +2049,7 @@ class AmateurTelsizIlanVitrini {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: 'action=ativ_ajax&action_type=ativ_get_listing_for_admin&id=' + id
+                body: 'action=ativ_ajax&action_type=ativ_get_listing_for_admin&id=' + id + '&_wpnonce=' + ativAdminNonce
             })
             .then(response => response.json())
             .then(data => {
@@ -2008,6 +2095,7 @@ class AmateurTelsizIlanVitrini {
                 body: new URLSearchParams({
                     action: 'ativ_ajax',
                     action_type: 'ativ_update_listing_admin',
+                    _wpnonce: ativAdminNonce,
                     id: formData.get('id'),
                     title: formData.get('title'),
                     category: formData.get('category'),
@@ -2079,6 +2167,7 @@ class AmateurTelsizIlanVitrini {
                 body: new URLSearchParams({
                     action: 'ativ_ajax',
                     action_type: 'ativ_change_listing_status',
+                    _wpnonce: ativAdminNonce,
                     id: id,
                     status: 'rejected',
                     rejection_reason: reason
@@ -2133,6 +2222,7 @@ class AmateurTelsizIlanVitrini {
                 body: new URLSearchParams({
                     action: 'ativ_ajax',
                     action_type: 'ativ_delete_listing_admin',
+                    _wpnonce: ativAdminNonce,
                     id: id,
                     deletion_reason: reason
                 })
@@ -2175,6 +2265,7 @@ class AmateurTelsizIlanVitrini {
                 body: new URLSearchParams({
                     action: 'ativ_ajax',
                     action_type: 'ativ_change_listing_status',
+                    _wpnonce: ativAdminNonce,
                     id: id,
                     status: status
                 })
