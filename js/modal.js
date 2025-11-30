@@ -396,6 +396,43 @@ window.removeImage = function(index) {
 /**
  * Form gönderim işleyicisi
  */
+/**
+ * Modal üzerinde yükleme göstergesi gösterir
+ */
+function showModalLoading(message = 'İşlem yapılıyor, lütfen bekleyin...') {
+  const modal = document.getElementById('addListingModal');
+  if (!modal) return;
+  
+  // Eğer zaten varsa kaldır
+  const existing = modal.querySelector('.modal-loading-overlay');
+  if (existing) existing.remove();
+  
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-loading-overlay';
+  overlay.innerHTML = `
+    <div class="modal-loading-content">
+      <div class="modal-loading-spinner"></div>
+      <div class="modal-loading-text">${message}</div>
+    </div>
+  `;
+  
+  modal.appendChild(overlay);
+}
+
+/**
+ * Modal yükleme göstergesini kaldırır
+ */
+function hideModalLoading() {
+  const modal = document.getElementById('addListingModal');
+  if (!modal) return;
+  
+  const overlay = modal.querySelector('.modal-loading-overlay');
+  if (overlay) {
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.remove(), 200);
+  }
+}
+
 async function handleFormSubmit(e) {
   e.preventDefault();
   
@@ -406,6 +443,9 @@ async function handleFormSubmit(e) {
   const isEditing = editingListing !== null;
   submitBtn.innerHTML = `<span class="loading-spinner"></span>${isEditing ? 'Kaydediliyor...' : 'Ekleniyor...'}`;
   messageDiv.innerHTML = '';
+  
+  // Yükleme overlay'ini göster
+  showModalLoading(isEditing ? 'İlan güncelleniyor, lütfen bekleyin...' : 'İlan kaydediliyor, lütfen bekleyin...');
 
   const callsign = document.getElementById('formCallsign').value.trim();
   
@@ -460,12 +500,16 @@ async function handleFormSubmit(e) {
       }
     }
     
+    // Yükleme overlay'ini kaldır
+    hideModalLoading();
+    
     // Basariyi göster ve modal kapat
     setTimeout(() => {
       closeAddListingModal();
       isEditingRejectedListing = false; // Flag'i temizle
     }, 1500);
   } catch (error) {
+    hideModalLoading();
     messageDiv.innerHTML = '<div class="error-message">İşlem sırasında bir hata oluştu. Lütfen tekrar deneyin.</div>';
   } finally {
     submitBtn.disabled = false;
