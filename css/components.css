@@ -372,11 +372,14 @@
 /* Mobile responsive for detail panel */
 @media (max-width: 768px) {
   .detail-modal-overlay {
-    padding: 10px !important;
+    padding: 0 !important;
+    align-items: flex-start !important;
   }
 
   .detail-modal-content {
-    max-height: 95% !important;
+    max-height: 100vh !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
   }
 
   .detail-left-section {
@@ -385,7 +388,9 @@
 
   .detail-right-section {
     padding: 24px 20px !important;
-    max-height: none !important;
+    max-height: calc(100vh - 400px) !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
   }
 
   .detail-header h2 {
@@ -413,6 +418,7 @@
 
   .detail-right-section {
     padding: 20px 16px !important;
+    max-height: calc(100vh - 350px) !important;
   }
 
   .detail-preview-image {

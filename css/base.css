@@ -86,29 +86,56 @@
 
     @media (max-width: 768px) {
       .controls {
-        padding: 20px;
+        padding: 20px 16px;
         border-radius: 16px;
-        gap: 12px;
+        gap: 10px;
+        margin-bottom: 24px;
+      }
+
+      .controls > div:first-child {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
       }
 
       .search-box {
         order: -1;
         width: 100%;
+        min-width: unset;
       }
 
       .filter-group {
-        width: calc(50% - 6px);
+        width: calc(50% - 5px);
+        min-width: unset;
       }
 
       .add-listing-btn {
         width: 100%;
         order: 999;
+        margin-top: 4px;
+        padding: 14px 20px;
+        font-size: 15px;
       }
     }
 
     @media (max-width: 480px) {
+      .controls {
+        padding: 16px 12px;
+        gap: 8px;
+      }
+
+      .controls > div:first-child {
+        gap: 8px;
+      }
+
       .filter-group {
         width: 100%;
+      }
+
+      .add-listing-btn {
+        padding: 14px 20px;
+        font-size: 14px;
       }
     }
 
@@ -494,9 +521,44 @@
 
     /* Sıralama dropdown'u için responsive stiller */
     @media (max-width: 768px) {
-      .filter-group:nth-last-child(2) {
-        /* Sıralama dropdown'u mobilde tam genişlik */
-        width: 100%;
+      .dropdown-filter {
+        min-width: calc(50% - 6px);
+        flex: 1 1 calc(50% - 6px);
+      }
+
+      .dropdown-button {
+        padding: 14px 16px;
+        font-size: 14px;
+        white-space: nowrap;
+      }
+
+      .dropdown-button span:first-child {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .filter-select {
+        padding: 14px 16px;
+        font-size: 14px;
+        min-width: calc(50% - 6px);
+      }
+    }
+
+    @media (max-width: 480px) {
+      .dropdown-filter {
+        min-width: 100%;
+        flex: 1 1 100%;
+      }
+
+      .dropdown-button {
+        padding: 12px 14px;
+        font-size: 13px;
+      }
+
+      .filter-select {
+        padding: 12px 14px;
+        font-size: 13px;
+        min-width: 100%;
       }
     }
 
