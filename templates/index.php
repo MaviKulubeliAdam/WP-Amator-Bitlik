@@ -136,12 +136,8 @@
       </div>
     </div>
 
-<?php 
-// Sadece oturum açmış kullanıcılar butonu görebilir
-if (is_user_logged_in()): 
-?>
+<!-- Tüm kullanıcılar butonu görebilir, giriş yapmamışlar için modal açılır -->
 <button id="addListingBtn" class="add-listing-btn">+ Yeni İlan</button>
-<?php endif; ?>
 
   </div>
   <div class="listings-wrapper">

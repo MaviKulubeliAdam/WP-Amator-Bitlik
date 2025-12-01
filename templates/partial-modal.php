@@ -174,3 +174,40 @@
   </div>
  </div>
 </div>
+
+<!-- Login Required Modal - Giriş Yapmamış Kullanıcılar İçin -->
+<div id="loginRequiredModal" class="modal-overlay" style="display: none;">
+ <div class="modal-content" style="max-width: 500px;">
+  <div class="modal-header">
+   <h2>🔐 Giriş Yapmanız Gerekiyor</h2>
+   <button class="modal-close" id="loginRequiredCloseBtn" aria-label="Kapat">×</button>
+  </div>
+  <div class="modal-body" style="display: block; padding: 30px;">
+   <div style="text-align: center; margin-bottom: 24px;">
+    <div style="font-size: 64px; margin-bottom: 16px;">📝</div>
+    <p style="font-size: 16px; color: #666; line-height: 1.6; margin: 0;">
+     İlan eklemek için <strong>üye girişi</strong> yapmanız gerekmektedir.
+    </p>
+   </div>
+   
+   <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; border-radius: 8px; margin-bottom: 24px;">
+    <p style="margin: 0; font-size: 14px; color: #856404; line-height: 1.6;">
+     ⚠️ <strong>Önemli:</strong> Platform, yalnızca kayıtlı kullanıcıların ilan eklemesine izin vermektedir. 
+     Bu, güvenlik ve içerik kalitesi için zorunlu bir gerekliliktir.
+    </p>
+   </div>
+   
+   <div style="display: flex; flex-direction: column; gap: 12px;">
+    <a href="<?php echo home_url('/giris'); ?>" class="btn-submit" style="text-align: center; text-decoration: none; display: block; padding: 14px 24px;">
+     🔑 Giriş Yap
+    </a>
+    <a href="<?php echo home_url('/kayit'); ?>" class="btn-cancel" style="text-align: center; text-decoration: none; display: block; padding: 14px 24px; background: #667eea; color: white;">
+     ✨ Üye Ol
+    </a>
+    <button type="button" class="btn-cancel" id="loginRequiredCancelBtn" style="margin-top: 8px;">
+     İptal
+    </button>
+   </div>
+  </div>
+ </div>
+</div>

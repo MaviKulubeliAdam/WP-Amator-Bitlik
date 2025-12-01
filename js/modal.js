@@ -20,6 +20,9 @@ function setupModal() {
     });
   }
   
+  // Login Required Modal ayarları
+  setupLoginRequiredModal();
+  
   // My-listings sayfasındaki custom dropdown filtreleri ayarla
   setupMyListingsDropdowns();
 }
@@ -231,19 +234,55 @@ function setupTermsModal() {
 }
 
 /**
+ * Login Required Modal ayarlarını yapar
+ */
+function setupLoginRequiredModal() {
+  const loginModal = document.getElementById('loginRequiredModal');
+  const loginCloseBtn = document.getElementById('loginRequiredCloseBtn');
+  const loginCancelBtn = document.getElementById('loginRequiredCancelBtn');
+  
+  const closeLoginModal = () => {
+    if (loginModal) {
+      loginModal.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+  };
+  
+  if (loginCloseBtn) {
+    loginCloseBtn.addEventListener('click', closeLoginModal);
+  }
+  
+  if (loginCancelBtn) {
+    loginCancelBtn.addEventListener('click', closeLoginModal);
+  }
+  
+  if (loginModal) {
+    loginModal.addEventListener('click', (e) => {
+      if (e.target.id === 'loginRequiredModal') {
+        closeLoginModal();
+      }
+    });
+  }
+}
+
+/**
+ * Login Required modalını gösterir
+ */
+function showLoginRequiredModal() {
+  const loginModal = document.getElementById('loginRequiredModal');
+  if (loginModal) {
+    loginModal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+/**
  * Yeni ilan ekleme modalını açar
  */
 function openAddListingModal() {
-  // Çift katmanlı güvenlik kontrolü
+  // Giriş yapmamış kullanıcılar için login modalı göster
   if (!ativ_ajax.is_user_logged_in) {
-    alert('İlan eklemek için giriş yapmalısınız.');
-    return;
-  }
-  
-  // Butonun görünür olup olmadığını kontrol et (ekstra güvenlik)
-  const addButton = document.getElementById('addListingBtn');
-  if (!addButton || addButton.style.display === 'none' || addButton.offsetParent === null) {
-    alert('Bu işlem için yetkiniz bulunmamaktadır.');
+    showLoginRequiredModal();
     return;
   }
   
