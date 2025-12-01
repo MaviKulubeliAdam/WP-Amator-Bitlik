@@ -2867,6 +2867,21 @@ class AmateurTelsizIlanVitrini {
             .ativ-template-variables strong {
                 color: #333;
             }
+            
+            /* Notice mesajları için metin rengi düzeltmesi */
+            .notice, .notice p {
+                color: #1a1a1a !important;
+            }
+            
+            .notice-success {
+                background: #ecf7ed;
+                border-left-color: #46b450;
+            }
+            
+            .notice-error {
+                background: #fef7f7;
+                border-left-color: #dc3232;
+            }
             </style>
             
             <script>
