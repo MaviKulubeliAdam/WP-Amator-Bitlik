@@ -738,14 +738,15 @@
 
 .details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 12px;
 }
 
 .detail-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 12px;
+  align-items: center;
 }
 
 .seller-info {
@@ -796,8 +797,13 @@
   }
 
   .details-grid {
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 12px;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .detail-item {
+    grid-template-columns: 100px 1fr;
+    gap: 10px;
   }
 
   .seller-info {
@@ -850,7 +856,12 @@
 
   .details-grid {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 8px;
+  }
+
+  .detail-item {
+    grid-template-columns: 90px 1fr;
+    gap: 8px;
   }
 
   .seller-info {

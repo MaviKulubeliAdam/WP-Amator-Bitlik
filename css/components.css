@@ -349,16 +349,19 @@
 }
 
 .detail-label {
-  font-size: 14px !important;
+  font-size: 13px !important;
   color: #666 !important;
-  font-weight: 500 !important;
-  margin-bottom: 4px !important;
+  font-weight: 600 !important;
+  margin: 0 !important;
+  text-align: left !important;
 }
 
 .detail-value {
-  font-size: 18px !important;
+  font-size: 14px !important;
   color: #1a1a1a !important;
-  font-weight: 600 !important;
+  font-weight: 500 !important;
+  margin: 0 !important;
+  text-align: left !important;
 }
 
 .detail-description {
