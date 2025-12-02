@@ -35,19 +35,21 @@ function setupMyListingsDropdowns() {
   const priceSortButton = document.getElementById('priceSortButton');
   const priceSortMenu = document.getElementById('priceSortMenu');
   const priceSortOptions = document.querySelectorAll('#priceSortOptions .dropdown-option');
+  const priceSortDropdown = document.getElementById('priceSortDropdown');
   
   // Durum dropdown
   const statusFilterButton = document.getElementById('statusFilterButton');
   const statusFilterMenu = document.getElementById('statusFilterMenu');
   const statusFilterOptions = document.querySelectorAll('#statusFilterOptions .dropdown-option');
+  const statusDropdown = document.getElementById('statusFilterDropdown');
   
   // Tarih dropdown
   const dateSortButton = document.getElementById('dateSortButton');
   const dateSortMenu = document.getElementById('dateSortMenu');
   const dateSortOptions = document.querySelectorAll('#dateSortOptions .dropdown-option');
+  const dateDropdown = document.getElementById('dateSortDropdown');
   
   if (priceSortButton && priceSortMenu) {
-    const priceSortDropdown = document.getElementById('priceSortDropdown');
     priceSortButton.addEventListener('click', (e) => {
       e.stopPropagation();
       priceSortMenu.classList.toggle('active');
@@ -56,8 +58,6 @@ function setupMyListingsDropdowns() {
       // Close other dropdowns
       if (statusFilterMenu) statusFilterMenu.classList.remove('active');
       if (dateSortMenu) dateSortMenu.classList.remove('active');
-      const statusDropdown = document.getElementById('statusFilterDropdown');
-      const dateDropdown = document.getElementById('dateSortDropdown');
       if (statusDropdown) statusDropdown.classList.remove('open');
       if (dateDropdown) dateDropdown.classList.remove('open');
     });
@@ -76,7 +76,6 @@ function setupMyListingsDropdowns() {
   }
   
   if (statusFilterButton && statusFilterMenu) {
-    const statusDropdown = document.getElementById('statusFilterDropdown');
     statusFilterButton.addEventListener('click', (e) => {
       e.stopPropagation();
       statusFilterMenu.classList.toggle('active');
@@ -85,9 +84,7 @@ function setupMyListingsDropdowns() {
       // Close other dropdowns
       if (priceSortMenu) priceSortMenu.classList.remove('active');
       if (dateSortMenu) dateSortMenu.classList.remove('active');
-      const priceDropdown = document.getElementById('priceSortDropdown');
-      const dateDropdown = document.getElementById('dateSortDropdown');
-      if (priceDropdown) priceDropdown.classList.remove('open');
+      if (priceSortDropdown) priceSortDropdown.classList.remove('open');
       if (dateDropdown) dateDropdown.classList.remove('open');
     });
     
@@ -105,7 +102,6 @@ function setupMyListingsDropdowns() {
   }
   
   if (dateSortButton && dateSortMenu) {
-    const dateDropdown = document.getElementById('dateSortDropdown');
     dateSortButton.addEventListener('click', (e) => {
       e.stopPropagation();
       dateSortMenu.classList.toggle('active');
@@ -114,9 +110,7 @@ function setupMyListingsDropdowns() {
       // Close other dropdowns
       if (priceSortMenu) priceSortMenu.classList.remove('active');
       if (statusFilterMenu) statusFilterMenu.classList.remove('active');
-      const priceDropdown = document.getElementById('priceSortDropdown');
-      const statusDropdown = document.getElementById('statusFilterDropdown');
-      if (priceDropdown) priceDropdown.classList.remove('open');
+      if (priceSortDropdown) priceSortDropdown.classList.remove('open');
       if (statusDropdown) statusDropdown.classList.remove('open');
     });
     
@@ -140,10 +134,7 @@ function setupMyListingsDropdowns() {
     if (dateSortMenu) dateSortMenu.classList.remove('active');
     
     // Also remove 'open' class from dropdown parents
-    const priceDropdown = document.getElementById('priceSortDropdown');
-    const statusDropdown = document.getElementById('statusFilterDropdown');
-    const dateDropdown = document.getElementById('dateSortDropdown');
-    if (priceDropdown) priceDropdown.classList.remove('open');
+    if (priceSortDropdown) priceSortDropdown.classList.remove('open');
     if (statusDropdown) statusDropdown.classList.remove('open');
     if (dateDropdown) dateDropdown.classList.remove('open');
   });
