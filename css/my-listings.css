@@ -16,11 +16,11 @@
 }
 
 #ativ-container.my-listings-page .controls > div:first-child {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: center;
-  flex: 1;
+  display: flex !important;
+  gap: 12px !important;
+  flex-wrap: wrap !important;
+  align-items: center !important;
+  flex: 1 !important;
 }
 
 /* Dropdown filters for my-listings page */
@@ -61,7 +61,8 @@
   margin-left: 8px;
 }
 
-#ativ-container.my-listings-page .dropdown-filter.open .dropdown-arrow {
+#ativ-container.my-listings-page .dropdown-filter.open .dropdown-arrow,
+#ativ-container.my-listings-page .dropdown-menu.active ~ .dropdown-button .dropdown-arrow {
   transform: rotate(180deg);
 }
 
