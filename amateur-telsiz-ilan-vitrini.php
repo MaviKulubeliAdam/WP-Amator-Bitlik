@@ -2787,11 +2787,6 @@ class AmateurTelsizIlanVitrini {
                 )
             );
             
-            // Debug: user_terms template verisini kontrol et
-            error_log('=== TEMPLATES ARRAY DEBUG ===');
-            error_log('user_terms body length: ' . strlen($templates['user_terms']['body']));
-            error_log('user_terms body first 200 chars: ' . substr($templates['user_terms']['body'], 0, 200));
-            
             foreach ($templates as $template_key => $template_data) {
                 $existing_template = $wpdb->get_row(
                     $wpdb->prepare("SELECT id FROM $templates_table WHERE template_key = %s", $template_key)
@@ -2804,23 +2799,7 @@ class AmateurTelsizIlanVitrini {
                 );
                 
                 if ($existing_template) {
-                    $result = $wpdb->update($templates_table, $template_update_data, array('id' => $existing_template->id));
-                    
-                    // Debug: Her template için sonucu logla
-                    if ($template_key === 'user_terms') {
-                        error_log('=== USER TERMS UPDATE DEBUG ===');
-                        error_log('Existing template ID: ' . $existing_template->id);
-                        error_log('Update result: ' . var_export($result, true));
-                        error_log('WPDB last_error: ' . $wpdb->last_error);
-                        error_log('WPDB last_query: ' . $wpdb->last_query);
-                        error_log('Data to update - body length: ' . strlen($template_update_data['template_body']));
-                        error_log('Data to update - body first 100 chars: ' . substr($template_update_data['template_body'], 0, 100));
-                        
-                        // Veritabanından tekrar oku
-                        $check = $wpdb->get_row($wpdb->prepare("SELECT * FROM $templates_table WHERE id = %d", $existing_template->id));
-                        error_log('After update - DB body length: ' . strlen($check->template_body));
-                        error_log('After update - DB body first 100 chars: ' . substr($check->template_body, 0, 100));
-                    }
+                    $wpdb->update($templates_table, $template_update_data, array('id' => $existing_template->id));
                 } else {
                     $wpdb->insert($templates_table, array_merge(
                         array('template_key' => $template_key),
