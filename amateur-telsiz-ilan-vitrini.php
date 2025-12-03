@@ -2724,6 +2724,9 @@ class AmateurTelsizIlanVitrini {
                 wp_die('Güvenlik hatası');
             }
             
+            // WordPress magic quotes'u kaldır
+            $_POST = stripslashes_deep($_POST);
+            
             $settings_table = $wpdb->prefix . 'amator_telsiz_ayarlar';
             
             // SMTP ayarlarını kaydet
@@ -2784,6 +2787,11 @@ class AmateurTelsizIlanVitrini {
                 )
             );
             
+            // Debug: user_terms template verisini kontrol et
+            error_log('=== TEMPLATES ARRAY DEBUG ===');
+            error_log('user_terms body length: ' . strlen($templates['user_terms']['body']));
+            error_log('user_terms body first 200 chars: ' . substr($templates['user_terms']['body'], 0, 200));
+            
             foreach ($templates as $template_key => $template_data) {
                 $existing_template = $wpdb->get_row(
                     $wpdb->prepare("SELECT id FROM $templates_table WHERE template_key = %s", $template_key)
@@ -2796,7 +2804,23 @@ class AmateurTelsizIlanVitrini {
                 );
                 
                 if ($existing_template) {
-                    $wpdb->update($templates_table, $template_update_data, array('id' => $existing_template->id));
+                    $result = $wpdb->update($templates_table, $template_update_data, array('id' => $existing_template->id));
+                    
+                    // Debug: Her template için sonucu logla
+                    if ($template_key === 'user_terms') {
+                        error_log('=== USER TERMS UPDATE DEBUG ===');
+                        error_log('Existing template ID: ' . $existing_template->id);
+                        error_log('Update result: ' . var_export($result, true));
+                        error_log('WPDB last_error: ' . $wpdb->last_error);
+                        error_log('WPDB last_query: ' . $wpdb->last_query);
+                        error_log('Data to update - body length: ' . strlen($template_update_data['template_body']));
+                        error_log('Data to update - body first 100 chars: ' . substr($template_update_data['template_body'], 0, 100));
+                        
+                        // Veritabanından tekrar oku
+                        $check = $wpdb->get_row($wpdb->prepare("SELECT * FROM $templates_table WHERE id = %d", $existing_template->id));
+                        error_log('After update - DB body length: ' . strlen($check->template_body));
+                        error_log('After update - DB body first 100 chars: ' . substr($check->template_body, 0, 100));
+                    }
                 } else {
                     $wpdb->insert($templates_table, array_merge(
                         array('template_key' => $template_key),
@@ -2810,7 +2834,10 @@ class AmateurTelsizIlanVitrini {
                 update_option('ativ_location_country', sanitize_text_field($_POST['ativ_location_country']));
             }
             
-            echo '<div class="notice notice-success"><p>⚙️ Ayarlar başarıyla kaydedildi!</p></div>';
+            // WordPress cache'i temizle
+            wp_cache_flush();
+            
+            echo '<div class="notice notice-success"><p>⚙️ Ayarlar başarıyla kaydedildi! Değişikliklerin görünmesi için sayfayı yenileyin (CTRL+F5 veya CMD+SHIFT+R).</p></div>';
         }
         
         // Veritabanından ayarları getir
@@ -3053,6 +3080,7 @@ class AmateurTelsizIlanVitrini {
             <form method="POST" action="">
                 <?php wp_nonce_field('ativ_settings_nonce', 'ativ_settings_nonce'); ?>
                 <input type="hidden" name="action" value="ativ_save_settings">
+                <input type="hidden" name="active_tab" id="active_tab_field" value="smtp">
                 
                 <!-- Sekmeler -->
                 <div class="ativ-settings-tabs">
@@ -3218,8 +3246,9 @@ class AmateurTelsizIlanVitrini {
 
                     <div class="ativ-form-group">
                         <label for="ativ_terms_text">Sözleşme Metni</label>
-                        <textarea id="ativ_terms_text" name="ativ_terms_text" rows="12" style="font-family: inherit; font-size: 14px; line-height: 1.6;"><?php echo esc_textarea($ativ_terms_text); ?></textarea>
-                        <p class="description">İlan formunda gösterilecek kullanıcı sözleşmesi metni. Basit HTML etiketleri desteklenir.</p>
+                        <textarea id="ativ_terms_text" name="ativ_terms_text" rows="20" style="font-family: inherit; font-size: 14px; line-height: 1.6; width: 100%; max-width: 100%;"><?php echo esc_textarea($ativ_terms_text); ?></textarea>
+                        <p class="description">İlan formunda gösterilecek kullanıcı sözleşmesi metni. Basit HTML etiketleri desteklenir. 
+                        <br><strong>Mevcut karakter sayısı:</strong> <?php echo strlen($ativ_terms_text); ?> karakter</p>
                     </div>
                 </div>
 
@@ -3376,7 +3405,42 @@ class AmateurTelsizIlanVitrini {
             // Seçili sekme ve içeriği göster
             document.getElementById(tabName).classList.add('active');
             e.target.classList.add('active');
+            
+            // URL hash'ini güncelle
+            window.location.hash = tabName;
+            
+            // Hidden field'ı güncelle (form submit sonrası kullanılacak)
+            document.getElementById('active_tab_field').value = tabName;
         }
+        
+        // Sayfa yüklendiğinde hash veya POST'tan gelen sekmeyi aç
+        document.addEventListener('DOMContentLoaded', function() {
+            // Önce POST'tan gelen active_tab'ı kontrol et
+            const postActiveTab = '<?php echo isset($_POST['active_tab']) ? esc_js($_POST['active_tab']) : ''; ?>';
+            const hash = window.location.hash.substring(1);
+            const targetTab = postActiveTab || hash || 'smtp';
+            
+            if (targetTab && document.getElementById(targetTab)) {
+                // Tüm aktif sınıfları kaldır
+                document.querySelectorAll('.ativ-settings-content').forEach(el => el.classList.remove('active'));
+                document.querySelectorAll('.ativ-settings-tab').forEach(el => el.classList.remove('active'));
+                
+                // Seçili sekmeyi aktif yap
+                document.getElementById(targetTab).classList.add('active');
+                const tabButton = Array.from(document.querySelectorAll('.ativ-settings-tab')).find(btn => {
+                    return btn.getAttribute('onclick').includes("'" + targetTab + "'");
+                });
+                if (tabButton) {
+                    tabButton.classList.add('active');
+                }
+                
+                // Hash'i de güncelle
+                window.location.hash = targetTab;
+                
+                // Hidden field'ı güncelle
+                document.getElementById('active_tab_field').value = targetTab;
+            }
+        });
         
         // Test Mail Buton İşlemleri
         function setupTestMailButton() {
@@ -3917,8 +3981,11 @@ EOT
         global $wpdb;
         $templates_table = $wpdb->prefix . 'amator_telsiz_sablonlar';
         
+        // Cache'i atla - WPDB_NO_CACHE kullan
         $template = $wpdb->get_row(
-            $wpdb->prepare("SELECT template_body FROM $templates_table WHERE template_key = %s", $template_key)
+            $wpdb->prepare("SELECT template_body FROM $templates_table WHERE template_key = %s", $template_key),
+            OBJECT,
+            0
         );
         
         if ($template && !empty($template->template_body)) {
