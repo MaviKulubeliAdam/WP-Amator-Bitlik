@@ -82,7 +82,8 @@
    <div class="terms-content">
     <?php 
     // Kullanıcı sözleşmesi içeriğini dinamik olarak göster
-    echo isset($ativ_terms_content) ? wp_kses_post($ativ_terms_content) : '<p>Sözleşme metni yüklenemedi.</p>';
+    global $ativ_terms_content;
+    echo isset($ativ_terms_content) && !empty($ativ_terms_content) ? wp_kses_post($ativ_terms_content) : '<p>Sözleşme metni yüklenemedi.</p>';
     ?>
    </div>
   </div>

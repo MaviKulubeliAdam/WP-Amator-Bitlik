@@ -330,6 +330,7 @@ class AmateurTelsizIlanVitrini {
         $this->enqueue_scripts();
         
         // Kullanıcı sözleşmesi metnini veritabanından çek
+        global $ativ_terms_content;
         $ativ_terms_content = $this->get_template_body('user_terms', 'user_terms');
         
         ob_start();
@@ -369,6 +370,10 @@ class AmateurTelsizIlanVitrini {
 
         // Script ve style'ları yükle
         $this->enqueue_scripts();
+
+        // Kullanıcı sözleşmesi metnini veritabanından çek
+        global $ativ_terms_content;
+        $ativ_terms_content = $this->get_template_body('user_terms', 'user_terms');
 
         ob_start();
         include ATIV_PLUGIN_PATH . 'templates/my-listings.php';
