@@ -116,6 +116,14 @@ class AmateurTelsizIlanVitrini {
             wp_schedule_event(time(), 'sixhours', 'ativ_update_exchange_rates');
         }
         
+        // Her 1 saatte bir temp videoları temizle (cron job)
+        if (!wp_next_scheduled('ativ_cleanup_temp_videos')) {
+            wp_schedule_event(time(), 'hourly', 'ativ_cleanup_temp_videos');
+        }
+        
+        // Cron job hook'ları
+        add_action('ativ_cleanup_temp_videos', array($this, 'cleanup_old_temp_videos'));
+        
         // İlk kez açılışta kur güncelle
         $last_update = get_transient('ativ_exchange_rates_updated');
         if (!$last_update) {
@@ -143,11 +151,17 @@ class AmateurTelsizIlanVitrini {
     }
     
     public function deactivate() {
-        // Cron job'u temizle
+        // Cron job'ları temizle
         $timestamp = wp_next_scheduled('ativ_update_exchange_rates');
         if ($timestamp) {
             wp_unschedule_event($timestamp, 'ativ_update_exchange_rates');
         }
+        
+        $timestamp2 = wp_next_scheduled('ativ_cleanup_temp_videos');
+        if ($timestamp2) {
+            wp_unschedule_event($timestamp2, 'ativ_cleanup_temp_videos');
+        }
+        
         flush_rewrite_rules();
     }
     
@@ -156,34 +170,50 @@ class AmateurTelsizIlanVitrini {
             wp_mkdir_p(ATIV_UPLOAD_DIR);
         }
         
-         // Güvenlik için .htaccess dosyası oluştur - Sadece görsellere izin ver
-    $htaccess_file = ATIV_UPLOAD_DIR . '.htaccess';
-    if (!file_exists($htaccess_file)) {
+        // Güvenlik için .htaccess dosyası oluştur - Görsel ve video dosyalarına izin ver
+        $htaccess_file = ATIV_UPLOAD_DIR . '.htaccess';
         $htaccess_content = 'Options -Indexes' . PHP_EOL .
                             'RewriteEngine On' . PHP_EOL .
                             PHP_EOL .
-                            '# Sadece görsel dosyalara erişime izin ver' . PHP_EOL .
-                            '<FilesMatch "\.(jpg|jpeg|png|gif|webp|JPG|JPEG|PNG|GIF|WEBP)$">' . PHP_EOL .
+                            '# Görsel ve video dosyalarına erişime izin ver' . PHP_EOL .
+                            '<FilesMatch "\.(jpg|jpeg|png|gif|webp|mp4|webm|JPG|JPEG|PNG|GIF|WEBP|MP4|WEBM)$">' . PHP_EOL .
+                            '    Order allow,deny' . PHP_EOL .
                             '    Allow from all' . PHP_EOL .
-                            '    Satisfy Any' . PHP_EOL .
                             '</FilesMatch>' . PHP_EOL .
                             PHP_EOL .
-                            '# Diğer tüm dosya türlerini engelle' . PHP_EOL .
-                            '<FilesMatch "\.(php|html|htm|txt|log|sql|json|xml|htaccess)$">' . PHP_EOL .
+                            '# Tehlikeli dosya türlerini engelle' . PHP_EOL .
+                            '<FilesMatch "\.(php|phtml|php3|php4|php5|php7|phps|cgi|pl|asp|aspx|shtml|shtm|fcgi|exe|com|bat|sh|py|rb|htaccess|htpasswd|ini|log|sql)$">' . PHP_EOL .
+                            '    Order deny,allow' . PHP_EOL .
                             '    Deny from all' . PHP_EOL .
                             '</FilesMatch>' . PHP_EOL .
                             PHP_EOL .
-                            '# Varsayılan olarak tüm dosyaları engelle' . PHP_EOL .
-                            'Deny from all';
+                            '# Varsayılan olarak diğer dosya türlerini engelle' . PHP_EOL .
+                            '<FilesMatch "^.*$">' . PHP_EOL .
+                            '    Order deny,allow' . PHP_EOL .
+                            '    Deny from all' . PHP_EOL .
+                            '</FilesMatch>' . PHP_EOL .
+                            PHP_EOL .
+                            '# Tekrar görsel ve video dosyalarına izin ver (üstteki kural için override)' . PHP_EOL .
+                            '<FilesMatch "\.(jpg|jpeg|png|gif|webp|mp4|webm|JPG|JPEG|PNG|GIF|WEBP|MP4|WEBM)$">' . PHP_EOL .
+                            '    Order allow,deny' . PHP_EOL .
+                            '    Allow from all' . PHP_EOL .
+                            '</FilesMatch>';
+        
+        // Mevcut .htaccess'i güncelle veya yeni oluştur
         file_put_contents($htaccess_file, $htaccess_content);
-    }
     
-    // Güvenlik için index.html dosyası oluştur
-    $index_file = ATIV_UPLOAD_DIR . 'index.html';
-    if (!file_exists($index_file)) {
-        file_put_contents($index_file, '<!-- Silence is golden -->');
+        // Güvenlik için index.html dosyası oluştur
+        $index_file = ATIV_UPLOAD_DIR . 'index.html';
+        if (!file_exists($index_file)) {
+            file_put_contents($index_file, '<!-- Silence is golden -->');
+        }
+        
+        // Temp klasörü oluştur
+        $temp_dir = ATIV_UPLOAD_DIR . 'temp/';
+        if (!file_exists($temp_dir)) {
+            wp_mkdir_p($temp_dir);
+        }
     }
-}
     
     private function create_tables() {
     global $wpdb;
@@ -201,13 +231,14 @@ class AmateurTelsizIlanVitrini {
         category enum('transceiver', 'antenna', 'amplifier', 'accessory', 'other') NOT NULL,
         brand varchar(100) NOT NULL,
         model varchar(100) NOT NULL,
-        `condition` enum('Sıfır', 'Kullanılmış', 'Arızalı') NOT NULL,
+        `condition` enum('Sıfır', 'Kullanılmış', 'Arızalı', 'El Yapımı') NOT NULL,
         price decimal(10,2) NOT NULL,
         old_price decimal(10,2) DEFAULT NULL,
         currency enum('TRY', 'USD', 'EUR') DEFAULT 'TRY',
         description longtext NOT NULL,
         images longtext,
         featured_image_index int(11) DEFAULT 0,
+        video longtext,
         emoji varchar(10),
         callsign varchar(20) NOT NULL,
         seller_name varchar(100) NOT NULL,
@@ -517,7 +548,7 @@ class AmateurTelsizIlanVitrini {
     }
     
     // Kritik işlemler için oturum ve nonce kontrolü
-    $critical_actions = ['save_listing', 'update_listing', 'delete_listing', 'get_user_listings'];
+    $critical_actions = ['save_listing', 'update_listing', 'delete_listing', 'get_user_listings', 'upload_video', 'upload_video_temp', 'delete_video_temp'];
     $public_actions = ['get_listings', 'get_brands', 'get_locations'];
     $admin_actions = ['test_update_rates', 'test_send_mail'];
     
@@ -567,6 +598,15 @@ class AmateurTelsizIlanVitrini {
             break;
         case 'delete_listing':
             $this->delete_listing();
+            break;
+        case 'upload_video':
+            $this->upload_video();
+            break;
+        case 'upload_video_temp':
+            $this->upload_video_temp();
+            break;
+        case 'delete_video_temp':
+            $this->delete_video_temp();
             break;
         case 'test_update_rates':
             $this->test_update_exchange_rates();
@@ -717,8 +757,17 @@ class AmateurTelsizIlanVitrini {
     $emoji = '📻';
     $currency = sanitize_text_field($data['currency'] ?? 'TRY');
     
+    // Video URL'sini hazırla (temp'ten taşınacak)
+    $video_url = null;
+    if (!empty($data['video_temp_path'])) {
+        // Video temp'te, henüz taşıma
+        $video_url = null; // Şimdilik null, listing_id aldıktan sonra taşıyacağız
+    } elseif (!empty($data['video'])) {
+        $video_url = esc_url_raw($data['video']);
+    }
+    
     $insert_data = array(
-        'user_id' => $user_id, // Kullanıcı ID'sini ekle
+        'user_id' => $user_id,
         'title' => sanitize_text_field($data['title']),
         'category' => sanitize_text_field($data['category']),
         'brand' => sanitize_text_field($data['brand']),
@@ -729,6 +778,7 @@ class AmateurTelsizIlanVitrini {
         'description' => sanitize_textarea_field($data['description']),
         'images' => null,
         'featured_image_index' => 0,
+        'video' => $video_url,
         'emoji' => $emoji,
         'callsign' => sanitize_text_field($data['callsign']),
         'seller_name' => sanitize_text_field($data['seller_name']),
@@ -749,11 +799,22 @@ class AmateurTelsizIlanVitrini {
             $image_files = $this->process_listing_images($listing_id, $data['images']);
         }
         
-        // Görsel dosya isimlerini güncelle
+        // Video'yu temp'ten final klasöre taşı
+        $final_video_url = null;
+        if (!empty($data['video_temp_path'])) {
+            $final_video_url = $this->move_video_from_temp($data['video_temp_path'], $listing_id);
+        }
+        
+        // Görsel dosya isimlerini ve video URL'sini güncelle
         $update_data = array(
             'images' => !empty($image_files) ? json_encode($image_files) : null,
             'featured_image_index' => intval($data['featuredImageIndex'] ?? 0)
         );
+        
+        // Video başarıyla taşındıysa URL'yi ekle
+        if ($final_video_url) {
+            $update_data['video'] = $final_video_url;
+        }
         
         $wpdb->update($table_name, $update_data, array('id' => $listing_id));
         
@@ -995,6 +1056,11 @@ class AmateurTelsizIlanVitrini {
     if (array_key_exists('description', $data)) {
         $update_data['description'] = sanitize_textarea_field($data['description']);
     }
+    
+    // Video güncelleme
+    if (array_key_exists('video', $data)) {
+        $update_data['video'] = !empty($data['video']) ? esc_url_raw($data['video']) : null;
+    }
 
     // Görseller: istemciden gelen listeyi nihai kaynak kabul et
     if (array_key_exists('images', $data)) {
@@ -1182,6 +1248,34 @@ class AmateurTelsizIlanVitrini {
         }
     }
     
+    // İlanın videosunu sil (ilan klasöründen)
+    if (!empty($existing_listing['video'])) {
+        $video_filename = basename($existing_listing['video']);
+        $video_path = ATIV_UPLOAD_DIR . $id . '/' . $video_filename;
+        if (file_exists($video_path)) {
+            @unlink($video_path);
+        }
+    }
+    
+    // İlan klasörünü tamamen sil (boş olsa bile)
+    $listing_dir = ATIV_UPLOAD_DIR . $id;
+    if (is_dir($listing_dir)) {
+        // Klasörde kalan dosya var mı kontrol et
+        $remaining_files = glob($listing_dir . '/*');
+        
+        // Kalan dosyaları temizle
+        if (!empty($remaining_files)) {
+            foreach ($remaining_files as $file) {
+                if (is_file($file)) {
+                    @unlink($file);
+                }
+            }
+        }
+        
+        // Boş klasörü sil
+        @rmdir($listing_dir);
+    }
+    
     $result = $wpdb->delete($table_name, array('id' => $id));
     
     if ($result) {
@@ -1199,6 +1293,367 @@ class AmateurTelsizIlanVitrini {
         wp_send_json_error('İlan silinirken hata oluştu: ' . $wpdb->last_error);
     }
 }
+
+    /**
+     * Video yükleme ve işleme
+     */
+    private function upload_video() {
+        // Video yükleme için zaman sınırını artır (300 saniye = 5 dakika)
+        @set_time_limit(300);
+        @ini_set('memory_limit', '256M');
+        
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Video yüklemek için giriş yapmalısınız');
+        }
+
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'amator_ilanlar';
+
+        // Video dosyasını kontrol et
+        if (empty($_FILES['video'])) {
+            wp_send_json_error('Bir video dosyası seçiniz');
+        }
+
+        $file = $_FILES['video'];
+        $user_id = get_current_user_id();
+
+        // listing_id kontrol et (zorunlu)
+        $listing_id = isset($_POST['listing_id']) ? intval($_POST['listing_id']) : 0;
+        if ($listing_id <= 0) {
+            wp_send_json_error('İlan ID bulunamadı');
+        }
+
+        // Upload hatalarını kontrol et
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $error_messages = array(
+                UPLOAD_ERR_INI_SIZE => 'Dosya boyutu sunucu limitini aşıyor',
+                UPLOAD_ERR_FORM_SIZE => 'Dosya boyutu form limitini aşıyor',
+                UPLOAD_ERR_PARTIAL => 'Dosya kısmen yüklendi',
+                UPLOAD_ERR_NO_FILE => 'Dosya yüklenmedi',
+                UPLOAD_ERR_NO_TMP_DIR => 'Geçici klasör bulunamadı',
+                UPLOAD_ERR_CANT_WRITE => 'Dosya yazılamadı',
+                UPLOAD_ERR_EXTENSION => 'Bir PHP uzantısı yüklemeyi durdurdu'
+            );
+            $error_msg = isset($error_messages[$file['error']]) ? $error_messages[$file['error']] : 'Bilinmeyen yükleme hatası';
+            wp_send_json_error($error_msg);
+        }
+
+        // Boyut kontrolü (150MB)
+        $max_size = 150 * 1024 * 1024;
+        if ($file['size'] > $max_size) {
+            wp_send_json_error('Video dosyası 150MB\'dan küçük olmalıdır');
+        }
+
+        if ($file['size'] == 0) {
+            wp_send_json_error('Dosya boş');
+        }
+
+        // Dosya uzantısını güvenli şekilde al ve kontrol et
+        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $allowed_extensions = array('mp4', 'webm');
+        
+        if (!in_array($file_ext, $allowed_extensions)) {
+            wp_send_json_error('Sadece MP4 ve WebM uzantıları desteklenir');
+        }
+
+        // MIME type kontrolü (client-side, ek güvenlik için)
+        $allowed_mimes = array('video/mp4', 'video/webm');
+        if (!in_array($file['type'], $allowed_mimes)) {
+            wp_send_json_error('Geçersiz dosya tipi');
+        }
+
+        // GERÇEKTİR DOSYA İÇERİĞİ KONTROLÜ - PHP fileinfo ile
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime_type = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+
+        if (!in_array($mime_type, $allowed_mimes)) {
+            wp_send_json_error('Dosya içeriği video değil');
+        }
+
+        // İlan klasörünü oluştur (görseller gibi)
+        $listing_dir = ATIV_UPLOAD_DIR . $listing_id;
+        if (!file_exists($listing_dir)) {
+            if (!wp_mkdir_p($listing_dir)) {
+                wp_send_json_error('İlan klasörü oluşturulamadı');
+            }
+        }
+
+        // Dosya adını oluştur: {listing_id}V01.{ext} formatında
+        $file_name = intval($listing_id) . 'V01.' . $file_ext;
+        $file_path = $listing_dir . '/' . $file_name;
+
+        // Güvenlik: Path traversal koruması
+        $real_upload_dir = realpath(ATIV_UPLOAD_DIR);
+        $real_file_path = realpath($listing_dir) . '/' . basename($file_name);
+        
+        if (strpos($real_file_path, $real_upload_dir) !== 0) {
+            wp_send_json_error('Güvenlik ihlali tespit edildi');
+        }
+
+        // Eski videoyu sil (varsa)
+        $old_video = $wpdb->get_var($wpdb->prepare(
+            "SELECT video FROM $table_name WHERE id = %d AND user_id = %d",
+            $listing_id,
+            $user_id
+        ));
+        
+        if ($old_video) {
+            // Eski video dosyasının tam yolunu bul
+            $old_file_name = basename($old_video);
+            $old_file_path = $listing_dir . '/' . $old_file_name;
+            if (file_exists($old_file_path)) {
+                @unlink($old_file_path);
+            }
+        }
+
+        // Dosyayı güvenli şekilde taşı
+        if (!move_uploaded_file($file['tmp_name'], $file_path)) {
+            wp_send_json_error('Video dosyası yüklenirken hata oluştu');
+        }
+
+        // Dosya izinlerini ayarla (güvenlik)
+        chmod($file_path, 0644);
+
+        // URL oluştur
+        $upload_dir = wp_upload_dir();
+        $plugin_url = plugins_url('uploads/', __FILE__);
+        $file_url = $plugin_url . $listing_id . '/' . $file_name;
+        
+        // Yeni videoyu kaydet
+        $updated = $wpdb->update(
+            $table_name,
+            array('video' => $file_url),
+            array('id' => $listing_id, 'user_id' => $user_id),
+            array('%s'),
+            array('%d', '%d')
+        );
+        
+        if ($updated === false) {
+            // Database hatası, yüklenen dosyayı sil
+            @unlink($file_path);
+            wp_send_json_error('Video kaydedilemedi');
+        }
+        
+        wp_send_json_success(array(
+            'message' => 'Video başarıyla yüklendi',
+            'url' => $file_url
+        ));
+    }
+
+    /**
+     * Video'yu TEMP klasörüne yükle (form doldurulurken)
+     */
+    private function upload_video_temp() {
+        // Video yükleme için zaman sınırını artır
+        @set_time_limit(300);
+        @ini_set('memory_limit', '256M');
+        
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Video yüklemek için giriş yapmalısınız');
+        }
+
+        // Video dosyasını kontrol et
+        if (empty($_FILES['video'])) {
+            wp_send_json_error('Bir video dosyası seçiniz');
+        }
+
+        $file = $_FILES['video'];
+        $user_id = get_current_user_id();
+
+        // Upload hatalarını kontrol et
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            $error_messages = array(
+                UPLOAD_ERR_INI_SIZE => 'Dosya boyutu sunucu limitini aşıyor',
+                UPLOAD_ERR_FORM_SIZE => 'Dosya boyutu form limitini aşıyor',
+                UPLOAD_ERR_PARTIAL => 'Dosya kısmen yüklendi',
+                UPLOAD_ERR_NO_FILE => 'Dosya yüklenmedi',
+                UPLOAD_ERR_NO_TMP_DIR => 'Geçici klasör bulunamadı',
+                UPLOAD_ERR_CANT_WRITE => 'Dosya yazılamadı',
+                UPLOAD_ERR_EXTENSION => 'Bir PHP uzantısı yüklemeyi durdurdu'
+            );
+            $error_msg = isset($error_messages[$file['error']]) ? $error_messages[$file['error']] : 'Bilinmeyen yükleme hatası';
+            wp_send_json_error($error_msg);
+        }
+
+        // Boyut kontrolü (150MB)
+        $max_size = 150 * 1024 * 1024;
+        if ($file['size'] > $max_size) {
+            wp_send_json_error('Video dosyası 150MB\'dan küçük olmalıdır');
+        }
+
+        if ($file['size'] == 0) {
+            wp_send_json_error('Dosya boş');
+        }
+
+        // Dosya uzantısını güvenli şekilde al ve kontrol et
+        $file_ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $allowed_extensions = array('mp4', 'webm');
+        
+        if (!in_array($file_ext, $allowed_extensions)) {
+            wp_send_json_error('Sadece MP4 ve WebM uzantıları desteklenir');
+        }
+
+        // MIME type kontrolü
+        $allowed_mimes = array('video/mp4', 'video/webm');
+        if (!in_array($file['type'], $allowed_mimes)) {
+            wp_send_json_error('Geçersiz dosya tipi');
+        }
+
+        // GERÇEK DOSYA İÇERİĞİ KONTROLÜ - PHP fileinfo ile
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mime_type = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+
+        if (!in_array($mime_type, $allowed_mimes)) {
+            wp_send_json_error('Dosya içeriği video değil');
+        }
+
+        // TEMP klasörü oluştur
+        $temp_dir = ATIV_UPLOAD_DIR . 'temp/';
+        if (!file_exists($temp_dir)) {
+            if (!wp_mkdir_p($temp_dir)) {
+                wp_send_json_error('Temp klasörü oluşturulamadı');
+            }
+        }
+
+        // Benzersiz dosya adı oluştur: temp_{user_id}_{timestamp}_{random}.{ext}
+        $file_name = 'temp_' . $user_id . '_' . time() . '_' . wp_generate_password(8, false) . '.' . $file_ext;
+        $file_path = $temp_dir . $file_name;
+
+        // Güvenlik: Path traversal koruması
+        $real_temp_dir = realpath($temp_dir);
+        $real_file_path = realpath(dirname($file_path)) . '/' . basename($file_path);
+        
+        if (strpos($real_file_path, $real_temp_dir) !== 0) {
+            wp_send_json_error('Güvenlik ihlali tespit edildi');
+        }
+
+        // Dosyayı güvenli şekilde taşı
+        if (!move_uploaded_file($file['tmp_name'], $file_path)) {
+            wp_send_json_error('Video dosyası yüklenirken hata oluştu');
+        }
+
+        // Dosya izinlerini ayarla
+        chmod($file_path, 0644);
+
+        // URL oluştur
+        $plugin_url = plugins_url('uploads/', __FILE__);
+        $file_url = $plugin_url . 'temp/' . $file_name;
+        
+        wp_send_json_success(array(
+            'message' => 'Video temp klasöre yüklendi',
+            'temp_url' => $file_url,
+            'temp_filename' => $file_name
+        ));
+    }
+
+    /**
+     * Temp klasördeki videoyu final klasöre taşı
+     */
+    private function move_video_from_temp($temp_url, $listing_id) {
+        if (empty($temp_url)) {
+            return null;
+        }
+
+        // Temp filename'i URL'den çıkar
+        $temp_filename = basename($temp_url);
+        $temp_path = ATIV_UPLOAD_DIR . 'temp/' . $temp_filename;
+
+        // Dosya var mı kontrol et
+        if (!file_exists($temp_path)) {
+            error_log('ATIV: Temp video bulunamadı: ' . $temp_path);
+            return null;
+        }
+
+        // İlan klasörünü oluştur
+        $listing_dir = ATIV_UPLOAD_DIR . $listing_id;
+        if (!file_exists($listing_dir)) {
+            wp_mkdir_p($listing_dir);
+        }
+
+        // Dosya uzantısını al
+        $file_ext = strtolower(pathinfo($temp_filename, PATHINFO_EXTENSION));
+        
+        // Final dosya adı: {listing_id}V01.{ext}
+        $final_filename = intval($listing_id) . 'V01.' . $file_ext;
+        $final_path = $listing_dir . '/' . $final_filename;
+
+        // Dosyayı taşı
+        if (rename($temp_path, $final_path)) {
+            // URL oluştur
+            $plugin_url = plugins_url('uploads/', __FILE__);
+            $final_url = $plugin_url . $listing_id . '/' . $final_filename;
+            
+            return $final_url;
+        }
+
+        error_log('ATIV: Video taşınamadı: ' . $temp_path . ' -> ' . $final_path);
+        return null;
+    }
+
+    /**
+     * Temp klasördeki videoyu sil
+     */
+    private function delete_video_temp() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Yetkiniz yok');
+        }
+
+        $temp_url = isset($_POST['temp_url']) ? sanitize_text_field($_POST['temp_url']) : '';
+        
+        if (empty($temp_url)) {
+            wp_send_json_error('Temp URL bulunamadı');
+        }
+
+        // Temp filename'i URL'den çıkar
+        $temp_filename = basename($temp_url);
+        $temp_path = ATIV_UPLOAD_DIR . 'temp/' . $temp_filename;
+
+        // Güvenlik: Dosyanın gerçekten temp klasöründe olduğunu kontrol et
+        $real_temp_dir = realpath(ATIV_UPLOAD_DIR . 'temp/');
+        $real_file_path = realpath($temp_path);
+
+        if ($real_file_path && strpos($real_file_path, $real_temp_dir) === 0) {
+            if (file_exists($temp_path)) {
+                @unlink($temp_path);
+                wp_send_json_success('Temp video silindi');
+            } else {
+                wp_send_json_success('Dosya zaten mevcut değil');
+            }
+        } else {
+            wp_send_json_error('Güvenlik ihlali');
+        }
+    }
+
+    /**
+     * Eski temp dosyalarını temizle (1 saatten eski olanlar)
+     * Cron job ile çalıştırılır
+     */
+    public function cleanup_old_temp_videos() {
+        $temp_dir = ATIV_UPLOAD_DIR . 'temp/';
+        
+        if (!is_dir($temp_dir)) {
+            return;
+        }
+
+        $files = glob($temp_dir . 'temp_*');
+        $one_hour_ago = time() - 3600; // 1 saat = 3600 saniye
+        $deleted_count = 0;
+
+        foreach ($files as $file) {
+            if (is_file($file) && filemtime($file) < $one_hour_ago) {
+                if (@unlink($file)) {
+                    $deleted_count++;
+                    error_log('ATIV: Eski temp video temizlendi: ' . basename($file));
+                }
+            }
+        }
+        
+        if ($deleted_count > 0) {
+            error_log('ATIV: Toplam ' . $deleted_count . ' eski temp video temizlendi');
+        }
+    }
     
     private function delete_listing_images($listing_id, $image_files) {
         // GÜVENLİK: listing_id'yi integer olarak doğrula
@@ -2502,15 +2957,38 @@ class AmateurTelsizIlanVitrini {
         if ($listing && $listing['images']) {
             $images = json_decode($listing['images'], true);
             if (is_array($images)) {
-                foreach ($images as $image) {
-                    if (isset($image['filename'])) {
-                        $file_path = ATIV_UPLOAD_DIR . $image['filename'];
-                        if (file_exists($file_path)) {
-                            unlink($file_path);
-                        }
+                foreach ($images as $image_filename) {
+                    $file_path = ATIV_UPLOAD_DIR . $id . '/' . $image_filename;
+                    if (file_exists($file_path)) {
+                        @unlink($file_path);
                     }
                 }
             }
+        }
+        
+        // Videoyu sil
+        if ($listing && !empty($listing['video'])) {
+            $video_filename = basename($listing['video']);
+            $video_path = ATIV_UPLOAD_DIR . $id . '/' . $video_filename;
+            if (file_exists($video_path)) {
+                @unlink($video_path);
+            }
+        }
+        
+        // İlan klasörünü tamamen sil
+        $listing_dir = ATIV_UPLOAD_DIR . $id;
+        if (is_dir($listing_dir)) {
+            // Klasörde kalan dosyaları temizle
+            $remaining_files = glob($listing_dir . '/*');
+            if (!empty($remaining_files)) {
+                foreach ($remaining_files as $file) {
+                    if (is_file($file)) {
+                        @unlink($file);
+                    }
+                }
+            }
+            // Boş klasörü sil
+            @rmdir($listing_dir);
         }
         
         // İlanı sil
@@ -2595,6 +3073,7 @@ class AmateurTelsizIlanVitrini {
                     <option value="Sıfır" <?php selected($listing['condition'], 'Sıfır'); ?>>🆕 Sıfır - Hiç Kullanılmamış</option>
                     <option value="Kullanılmış" <?php selected($listing['condition'], 'Kullanılmış'); ?>>✓ Kullanılmış - İyi Durumda</option>
                     <option value="Arızalı" <?php selected($listing['condition'], 'Arızalı'); ?>>⚠️ Arızalı - Tamir Gerekli</option>
+                    <option value="El Yapımı" <?php selected($listing['condition'], 'El Yapımı'); ?>>🛠️ El Yapımı - Özel Yapım</option>
                 </select>
             </div>
             

@@ -286,6 +286,9 @@ function setupMyListingsDropdowns() {
 function setupForm() {
   document.getElementById('addListingForm').addEventListener('submit', handleFormSubmit);
   document.getElementById('formImages').addEventListener('change', handleImageUpload);
+  
+  // Video setup
+  setupVideoHandling();
 
   // Terms modal setup
   setupTermsModal();
@@ -462,6 +465,10 @@ function openAddListingModal() {
   
   // Şehir listesini yükle
   loadCities();
+  
+  // Kategori ve durum dropdown'larını ayarla
+  setupCategoryDropdown();
+  setupConditionDropdown();
 }
 
 /**
@@ -495,10 +502,8 @@ async function openEditListingModal(listingOrId) {
 
   // Populate modal fields
   document.getElementById('formTitle').value = listing.title || '';
-  document.getElementById('formCategory').value = listing.category || '';
   document.getElementById('formBrand').value = listing.brand || '';
   document.getElementById('formModel').value = listing.model || '';
-  document.getElementById('formCondition').value = listing.condition || '';
   document.getElementById('formPrice').value = listing.price || '';
   document.getElementById('formCurrency').value = listing.currency || 'TRY';
   document.getElementById('formDescription').value = listing.description || '';
@@ -506,6 +511,64 @@ async function openEditListingModal(listingOrId) {
   document.getElementById('formSellerName').value = listing.seller_name || '';
   document.getElementById('formLocation').value = listing.location || '';
   document.getElementById('formEmail').value = listing.seller_email || '';
+  
+  // Kategori ve durum mapping
+  const categoryMapping = {
+    'transceiver': '📻 Telsiz',
+    'antenna': '📡 Anten',
+    'amplifier': '🔊 Amplifikatör',
+    'accessory': '🔌 Aksesuar',
+    'other': '📦 Diğer'
+  };
+  
+  const conditionMapping = {
+    'Sıfır': '✨ Sıfır',
+    'Kullanılmış': '♻️ Kullanılmış',
+    'Arızalı': '⚠️ Arızalı',
+    'El Yapımı': '🔧 El Yapımı'
+  };
+  
+  // Değerleri geçici olarak sakla
+  const categoryValue = listing.category || '';
+  const categoryLabel = categoryMapping[categoryValue] || '';
+  const conditionValue = listing.condition || '';
+  const conditionLabel = conditionMapping[conditionValue] || '';
+  
+  console.log('🔍 DEBUG - Edit Modal Opening:');
+  console.log('Listing data:', { category: categoryValue, condition: conditionValue });
+  console.log('Mapped labels:', { categoryLabel, conditionLabel });
+  
+  // Dropdown'ları kur
+  console.log('Setting up dropdowns...');
+  setupCategoryDropdown();
+  setupConditionDropdown();
+  console.log('Dropdowns setup complete');
+  
+  // Değerleri set et (dropdown kurulduktan sonra)
+  const categoryInput = document.getElementById('formCategory');
+  const categoryHidden = document.getElementById('formCategoryValue');
+  const conditionInput = document.getElementById('formCondition');
+  const conditionHidden = document.getElementById('formConditionValue');
+  
+  console.log('Setting values...');
+  if (categoryInput) {
+    categoryInput.value = categoryLabel;
+    console.log('Category input set:', categoryInput.value);
+  }
+  if (categoryHidden) {
+    categoryHidden.value = categoryValue;
+    console.log('Category hidden set:', categoryHidden.value);
+  }
+  
+  if (conditionInput) {
+    conditionInput.value = conditionLabel;
+    console.log('Condition input set:', conditionInput.value);
+  }
+  if (conditionHidden) {
+    conditionHidden.value = conditionValue;
+    console.log('Condition hidden set:', conditionHidden.value);
+  }
+  console.log('✅ Values set complete');
   
   // Telefonu parse et ve alanları doldur
   const phoneData = parsePhoneNumber(listing.seller_phone || '');
@@ -532,6 +595,26 @@ async function openEditListingModal(listingOrId) {
     featuredImageIndex = listing.featured_image_index || 0;
     renderImagePreviews();
   }
+  
+  // Video preview (eğer varsa)
+  if (listing.video) {
+    const videoPreview = document.getElementById('videoPreviewContainer');
+    const videoStatus = document.getElementById('videoStatusHint');
+    if (videoPreview) {
+      videoPreview.innerHTML = `
+        <div style="position: relative; border-radius: 8px; overflow: hidden; background: #000;">
+          <video width="100%" height="200" controls style="display: block;">
+            <source src="${listing.video}" type="video/mp4">
+          </video>
+          <button type="button" onclick="removeVideo()" style="position: absolute; top: 8px; right: 8px; background: rgba(255,0,0,0.8); color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px;">Kaldır</button>
+        </div>
+      `;
+    }
+    if (videoStatus) {
+      videoStatus.innerHTML = '✅ Video mevcut (Yeni video seçerek değiştirebilirsiniz)';
+      videoStatus.style.color = '#2e7d32';
+    }
+  }
 
   // Show modal last so previews/fields are ready
   document.getElementById('addListingModal').style.display = 'flex';
@@ -554,6 +637,11 @@ async function openEditListingModal(listingOrId) {
  * İlan ekleme modalını kapatır
  */
 function closeAddListingModal() {
+  // Temp video varsa sil
+  if (uploadedVideoTempPath) {
+    deleteTempVideo(uploadedVideoTempPath);
+  }
+  
   document.getElementById('addListingModal').style.display = 'none';
   document.body.style.overflow = 'auto';
   document.getElementById('addListingForm').reset();
@@ -563,6 +651,16 @@ function closeAddListingModal() {
   featuredImageIndex = 0;
   editingListing = null;
   isEditingRejectedListing = false;
+  
+  // Video temizliği
+  selectedVideoFile = null;
+  uploadedVideoTempPath = null;
+  videoUploadInProgress = false;
+  const videoPreview = document.getElementById('videoPreviewContainer');
+  const videoStatus = document.getElementById('videoStatusHint');
+  if (videoPreview) videoPreview.innerHTML = '';
+  if (videoStatus) videoStatus.innerHTML = '';
+  
   document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
   document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
   renderImagePreviews();
@@ -743,15 +841,16 @@ async function handleFormSubmit(e) {
 
   const listingData = {
     title: document.getElementById('formTitle').value.trim(),
-    category: document.getElementById('formCategory').value,
+    category: document.getElementById('formCategoryValue')?.value || document.getElementById('formCategory').value,
     brand: document.getElementById('formBrand').value.trim(),
     model: document.getElementById('formModel').value.trim(),
-    condition: document.getElementById('formCondition').value,
+    condition: document.getElementById('formConditionValue')?.value || document.getElementById('formCondition').value,
     price: parseFloat(document.getElementById('formPrice').value),
     currency: document.getElementById('formCurrency').value,
     description: document.getElementById('formDescription').value.trim(),
     images: uploadedImages.length > 0 ? uploadedImages : null,
     featuredImageIndex: featuredImageIndex,
+    video: isEditing && editingListing && editingListing.video ? editingListing.video : null, // Mevcut video URL'si (değiştirilmezse)
     emoji: uploadedImages.length > 0 ? null : "📻",
     callsign: callsign,
     seller_name: document.getElementById('formSellerName').value.trim(),
@@ -759,6 +858,13 @@ async function handleFormSubmit(e) {
     seller_email: document.getElementById('formEmail').value.trim(),
     seller_phone: (document.getElementById('formCountryCode').value + ' ' + document.getElementById('formPhone').value.replace(/\s/g, '')).trim()
   };
+
+  // Video zaten temp'e yüklenmiş, sadece URL'yi ekle
+  if (uploadedVideoTempPath) {
+    listingData.video_temp_path = uploadedVideoTempPath;
+  } else if (isEditing && editingListing && editingListing.video) {
+    listingData.video = editingListing.video; // Mevcut video'yu koru
+  }
 
   try {
     if (isEditing) {
@@ -769,6 +875,7 @@ async function handleFormSubmit(e) {
         messageDiv.innerHTML = '<div class="success-message">İlan başarıyla güncellendi!</div>';
       }
     } else {
+      // YENİ İLAN: Sadece ilanı kaydet (video zaten temp'te)
       await saveListing(listingData);
       messageDiv.innerHTML = '<div class="success-message">İlanınız başarıyla eklendi!</div>';
     }
@@ -1504,6 +1611,169 @@ function setupCityDropdown() {
 }
 
 /**
+ * Kategori dropdown'ını ayarlar
+ */
+function setupCategoryDropdown() {
+  console.log('📦 setupCategoryDropdown() called');
+  const categories = [
+    { value: 'transceiver', label: '📻 Telsiz' },
+    { value: 'antenna', label: '📡 Anten' },
+    { value: 'amplifier', label: '🔊 Amplifikatör' },
+    { value: 'accessory', label: '🔌 Aksesuar' },
+    { value: 'other', label: '📦 Diğer' }
+  ];
+
+  const input = document.getElementById('formCategory');
+  const dropdown = document.getElementById('formCategoryDropdown');
+  console.log('Elements found:', { input: !!input, dropdown: !!dropdown });
+  if (!input || !dropdown) {
+    console.log('❌ Category input or dropdown not found');
+    return;
+  }
+
+  // Hidden input oluştur (gerçek değer için)
+  let hiddenInput = document.getElementById('formCategoryValue');
+  if (!hiddenInput) {
+    hiddenInput = document.createElement('input');
+    hiddenInput.type = 'hidden';
+    hiddenInput.id = 'formCategoryValue';
+    hiddenInput.name = 'category';
+    input.parentNode.appendChild(hiddenInput);
+  }
+
+  // Dropdown içeriğini oluştur
+  dropdown.innerHTML = categories.map(cat => 
+    `<div class="category-dropdown-item" data-value="${cat.value}">${cat.label}</div>`
+  ).join('');
+
+  // Input'a tıklayınca dropdown'ı aç/kapat
+  const inputClickHandler = function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropdown.classList.toggle('active');
+  };
+  
+  // Eski handler varsa kaldır
+  if (input._categoryClickHandler) {
+    input.removeEventListener('click', input._categoryClickHandler);
+  }
+  input._categoryClickHandler = inputClickHandler;
+  input.addEventListener('click', inputClickHandler);
+
+  // Dropdown item'lara tıklama
+  dropdown.querySelectorAll('.category-dropdown-item').forEach(item => {
+    item.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const value = this.dataset.value;
+      const label = this.textContent;
+      input.value = label;
+      hiddenInput.value = value;
+      dropdown.classList.remove('active');
+    });
+  });
+
+  // Dışarı tıklayınca kapat
+  const outsideClickHandler = function(e) {
+    if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.remove('active');
+    }
+  };
+  
+  // Eski handler varsa kaldır
+  if (window._categoryOutsideClickHandler) {
+    document.removeEventListener('click', window._categoryOutsideClickHandler);
+  }
+  window._categoryOutsideClickHandler = outsideClickHandler;
+  document.addEventListener('click', outsideClickHandler);
+  
+  console.log('✅ Category dropdown ready, current values:', {
+    visible: input.value,
+    hidden: hiddenInput.value
+  });
+}
+
+/**
+ * Durum dropdown'ını ayarlar
+ */
+function setupConditionDropdown() {
+  console.log('🔧 setupConditionDropdown() called');
+  const conditions = [
+    { value: 'Sıfır', label: '✨ Sıfır' },
+    { value: 'Kullanılmış', label: '♻️ Kullanılmış' },
+    { value: 'Arızalı', label: '⚠️ Arızalı' },
+    { value: 'El Yapımı', label: '🛠️ El Yapımı' }
+  ];
+
+  const input = document.getElementById('formCondition');
+  const dropdown = document.getElementById('formConditionDropdown');
+  console.log('Elements found:', { input: !!input, dropdown: !!dropdown });
+  if (!input || !dropdown) {
+    console.log('❌ Condition input or dropdown not found');
+    return;
+  }
+
+  // Hidden input oluştur (gerçek değer için)
+  let hiddenInput = document.getElementById('formConditionValue');
+  if (!hiddenInput) {
+    hiddenInput = document.createElement('input');
+    hiddenInput.type = 'hidden';
+    hiddenInput.id = 'formConditionValue';
+    hiddenInput.name = 'condition';
+    input.parentNode.appendChild(hiddenInput);
+  }
+
+  // Dropdown içeriğini oluştur
+  dropdown.innerHTML = conditions.map(cond => 
+    `<div class="condition-dropdown-item" data-value="${cond.value}">${cond.label}</div>`
+  ).join('');
+
+  // Input'a tıklayınca dropdown'ı aç/kapat
+  const inputClickHandler = function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    dropdown.classList.toggle('active');
+  };
+  
+  // Eski handler varsa kaldır
+  if (input._conditionClickHandler) {
+    input.removeEventListener('click', input._conditionClickHandler);
+  }
+  input._conditionClickHandler = inputClickHandler;
+  input.addEventListener('click', inputClickHandler);
+
+  // Dropdown item'lara tıklama
+  dropdown.querySelectorAll('.condition-dropdown-item').forEach(item => {
+    item.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const value = this.dataset.value;
+      const label = this.textContent;
+      input.value = label;
+      hiddenInput.value = value;
+      dropdown.classList.remove('active');
+    });
+  });
+
+  // Dışarı tıklayınca kapat
+  const outsideClickHandler = function(e) {
+    if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.classList.remove('active');
+    }
+  };
+  
+  // Eski handler varsa kaldır
+  if (window._conditionOutsideClickHandler) {
+    document.removeEventListener('click', window._conditionOutsideClickHandler);
+  }
+  window._conditionOutsideClickHandler = outsideClickHandler;
+  document.addEventListener('click', outsideClickHandler);
+  
+  console.log('✅ Condition dropdown ready, current values:', {
+    visible: input.value,
+    hidden: hiddenInput.value
+  });
+}
+
+/**
  * Detay bölümlerini oluşturur
  */
 function createDetailSections(listing) {
@@ -1551,6 +1821,17 @@ function createDetailSections(listing) {
         <p>${escapeHtml(listing.description)}</p>
       </div>
     </div>
+    ${listing.video ? `
+    <div class="product-details">
+      <h3>📹 Ürün Videosu</h3>
+      <div style="margin-top: 12px; border-radius: 8px; overflow: hidden; background: #000;">
+        <video width="100%" height="300" controls style="display: block;">
+          <source src="${listing.video}" type="video/mp4">
+          Tarayıcınız video oynatmayı desteklemiyor
+        </video>
+      </div>
+    </div>
+    ` : ''}
     <div class="seller-section">
       <h3>Satıcı Bilgileri</h3>
       <div class="detail-info">
@@ -1890,12 +2171,31 @@ window.editMyListing = async function(id) {
         editingListing = Object.assign({}, listing);
         isEditingRejectedListing = (listing.status === 'rejected' || listing.status === 'approved');
         
+        // Kategori ve durum mapping
+        const categoryMapping = {
+          'transceiver': '📻 Telsiz',
+          'antenna': '📡 Anten',
+          'amplifier': '🔊 Amplifikatör',
+          'accessory': '🔌 Aksesuar',
+          'other': '📦 Diğer'
+        };
+        
+        const conditionMapping = {
+          'Sıfır': '✨ Sıfır',
+          'Kullanılmış': '♻️ Kullanılmış',
+          'Arızalı': '⚠️ Arızalı',
+          'El Yapımı': '🔧 El Yapımı'
+        };
+        
+        const categoryValue = listing.category || '';
+        const categoryLabel = categoryMapping[categoryValue] || categoryValue;
+        const conditionValue = listing.condition || '';
+        const conditionLabel = conditionMapping[conditionValue] || conditionValue;
+        
         // Form alanlarını doldur
         document.getElementById('formTitle').value = listing.title || '';
-        document.getElementById('formCategory').value = listing.category || '';
         document.getElementById('formBrand').value = listing.brand || '';
         document.getElementById('formModel').value = listing.model || '';
-        document.getElementById('formCondition').value = listing.condition || '';
         document.getElementById('formPrice').value = listing.price || '';
         document.getElementById('formCurrency').value = listing.currency || 'TRY';
         document.getElementById('formDescription').value = listing.description || '';
@@ -1903,6 +2203,21 @@ window.editMyListing = async function(id) {
         document.getElementById('formSellerName').value = listing.seller_name || '';
         document.getElementById('formLocation').value = listing.location || '';
         document.getElementById('formEmail').value = listing.seller_email || '';
+        
+        // Dropdown'ları kur
+        setupCategoryDropdown();
+        setupConditionDropdown();
+        
+        // Kategori ve durum değerlerini set et (dropdown kurulduktan sonra)
+        const categoryInput = document.getElementById('formCategory');
+        const categoryHidden = document.getElementById('formCategoryValue');
+        const conditionInput = document.getElementById('formCondition');
+        const conditionHidden = document.getElementById('formConditionValue');
+        
+        if (categoryInput) categoryInput.value = categoryLabel;
+        if (categoryHidden) categoryHidden.value = categoryValue;
+        if (conditionInput) conditionInput.value = conditionLabel;
+        if (conditionHidden) conditionHidden.value = conditionValue;
         
         // Telefonu parse et ve alanları doldur
         const phoneData = parsePhoneNumber(listing.seller_phone || '');
@@ -1918,6 +2233,26 @@ window.editMyListing = async function(id) {
         featuredImageIndex = Math.max(0, parseInt(listing.featured_image_index || 0));
         renderImagePreviews();
         updatePreview();
+        
+        // Video preview (eğer varsa)
+        if (listing.video) {
+          const videoPreview = document.getElementById('videoPreviewContainer');
+          const videoStatus = document.getElementById('videoStatusHint');
+          if (videoPreview) {
+            videoPreview.innerHTML = `
+              <div style="position: relative; border-radius: 8px; overflow: hidden; background: #000;">
+                <video width="100%" height="200" controls style="display: block;">
+                  <source src="${listing.video}" type="video/mp4">
+                </video>
+                <button type="button" onclick="removeVideo()" style="position: absolute; top: 8px; right: 8px; background: rgba(255,0,0,0.8); color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px;">Kaldır</button>
+              </div>
+            `;
+          }
+          if (videoStatus) {
+            videoStatus.innerHTML = '✅ Video mevcut (Yeni video seçerek değiştirebilirsiniz)';
+            videoStatus.style.color = '#2e7d32';
+          }
+        }
         
         // Modal aç ve buton textini statüye göre ayarla
         document.getElementById('addListingModal').style.display = 'flex';
@@ -1940,4 +2275,427 @@ window.editMyListing = async function(id) {
   }
 };
 window.refreshMyListingsGrid = refreshMyListingsGrid;
+
+/**
+ * Video handling - Format ve süre validasyonu
+ */
+const videoFormats = ['video/mp4', 'video/webm'];
+const videoExtensions = ['mp4', 'webm'];
+const maxVideoDuration = 300; // 5 dakika (saniye)
+const maxVideoSize = 150 * 1024 * 1024; // 150MB
+
+let selectedVideoFile = null;
+let uploadedVideoTempPath = null; // Temp klasörde yüklenen video URL'si
+let videoUploadInProgress = false;
+
+function setupVideoHandling() {
+  const videoInput = document.getElementById('formVideo');
+  if (!videoInput) return;
+  
+  videoInput.addEventListener('change', handleVideoSelect);
+  
+  // Drag and drop için
+  const videoLabel = videoInput.parentElement;
+  if (videoLabel) {
+    videoLabel.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      videoLabel.classList.add('dragover');
+    });
+    videoLabel.addEventListener('dragleave', () => {
+      videoLabel.classList.remove('dragover');
+    });
+    videoLabel.addEventListener('drop', (e) => {
+      e.preventDefault();
+      videoLabel.classList.remove('dragover');
+      if (e.dataTransfer.files.length > 0) {
+        videoInput.files = e.dataTransfer.files;
+        handleVideoSelect({ target: videoInput });
+      }
+    });
+  }
+}
+
+async function handleVideoSelect(e) {
+  const file = e.target.files[0];
+  const statusHint = document.getElementById('videoStatusHint');
+  const previewContainer = document.getElementById('videoPreviewContainer');
+  const submitBtn = document.getElementById('submitListingBtn');
+  
+  if (!file) {
+    selectedVideoFile = null;
+    uploadedVideoTempPath = null;
+    videoUploadInProgress = false;
+    previewContainer.innerHTML = '';
+    if (statusHint) statusHint.innerHTML = '';
+    if (submitBtn) submitBtn.disabled = false;
+    return;
+  }
+  
+  // Dosya adı kontrolü
+  const fileName = file.name.toLowerCase();
+  const fileExt = fileName.split('.').pop();
+  
+  if (!videoExtensions.includes(fileExt)) {
+    statusHint.innerHTML = '❌ Hata: Sadece .mp4 ve .webm uzantıları desteklenir';
+    statusHint.style.color = '#d32f2f';
+    previewContainer.innerHTML = '';
+    selectedVideoFile = null;
+    uploadedVideoTempPath = null;
+    e.target.value = '';
+    return;
+  }
+  
+  // MIME Type kontrolü
+  if (!videoFormats.includes(file.type)) {
+    statusHint.innerHTML = '❌ Hata: Sadece MP4 ve WebM formatları desteklenir';
+    statusHint.style.color = '#d32f2f';
+    previewContainer.innerHTML = '';
+    selectedVideoFile = null;
+    uploadedVideoTempPath = null;
+    e.target.value = '';
+    return;
+  }
+  
+  // Boyut kontrol
+  if (file.size > maxVideoSize) {
+    statusHint.innerHTML = `❌ Hata: Dosya çok büyük (Max 150MB, Seçilen: ${(file.size / 1024 / 1024).toFixed(2)}MB)`;
+    statusHint.style.color = '#d32f2f';
+    previewContainer.innerHTML = '';
+    selectedVideoFile = null;
+    uploadedVideoTempPath = null;
+    e.target.value = '';
+    return;
+  }
+  
+  // Süre kontrol - video metadata'sı yükleneceğini bekle
+  const video = document.createElement('video');
+  video.preload = 'metadata';
+  
+  video.onloadedmetadata = async () => {
+    const duration = Math.floor(video.duration);
+    
+    if (duration > maxVideoDuration) {
+      statusHint.innerHTML = `❌ Hata: Video çok uzun (Max 5 dakika, Seçilen: ${formatDuration(duration)})`;
+      statusHint.style.color = '#d32f2f';
+      previewContainer.innerHTML = '';
+      selectedVideoFile = null;
+      uploadedVideoTempPath = null;
+      URL.revokeObjectURL(video.src);
+      return;
+    }
+    
+    // Tüm kontroller passed - Önce local preview göster, sonra arka planda yükle
+    selectedVideoFile = file;
+    videoUploadInProgress = true;
+    
+    // Submit butonunu devre dışı bırak
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="loading-spinner"></span>Video yükleniyor...';
+    }
+    
+    // Progress bar göster
+    statusHint.innerHTML = '📤 Video yükleniyor... 0%';
+    statusHint.style.color = '#1976d2';
+    
+    // Önce local blob URL ile preview göster (anında görünür)
+    const blobUrl = URL.createObjectURL(file);
+    
+    previewContainer.innerHTML = `
+      <div style="position: relative; border-radius: 8px; overflow: hidden; background: #000;">
+        <video width="100%" height="200" controls style="display: block;">
+          <source src="${blobUrl}" type="${file.type}">
+        </video>
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); padding: 12px 20px; border-radius: 8px; pointer-events: none;">
+          <div class="upload-progress-bar" style="width: 200px; margin-bottom: 8px;">
+            <div class="upload-progress-fill" id="videoProgressFill" style="width: 0%"></div>
+          </div>
+          <p id="videoUploadStatus" style="color: white; font-size: 13px; margin: 0; text-align: center;">Yükleniyor... 0%</p>
+        </div>
+      </div>
+    `;
+    
+    try {
+      // Video'yu arka planda temp klasöre yükle
+      const tempUrl = await uploadVideoToTemp(file);
+      uploadedVideoTempPath = tempUrl;
+      videoUploadInProgress = false;
+      
+      // Başarılı upload - progress göstergesini kaldır
+      statusHint.innerHTML = `✅ Video hazır: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)}MB, ${formatDuration(duration)})`;
+      statusHint.style.color = '#2e7d32';
+      
+      // Preview'ı güncelle - progress göstergesini kaldır
+      previewContainer.innerHTML = `
+        <div style="position: relative; border-radius: 8px; overflow: hidden; background: #000;">
+          <video width="100%" height="200" controls style="display: block;">
+            <source src="${blobUrl}" type="${file.type}">
+          </video>
+          <button type="button" onclick="removeVideo()" style="position: absolute; top: 8px; right: 8px; background: rgba(255,0,0,0.8); color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 12px;">Kaldır</button>
+        </div>
+      `;
+      
+      // Submit butonunu aktif et
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = editingListing ? 'Değişiklikleri Kaydet' : 'İlanı Yayınla';
+      }
+      
+    } catch (error) {
+      console.error('Video yükleme hatası:', error);
+      videoUploadInProgress = false;
+      uploadedVideoTempPath = null;
+      selectedVideoFile = null;
+      URL.revokeObjectURL(blobUrl);
+      
+      statusHint.innerHTML = `❌ Video yüklenemedi: ${error.message}`;
+      statusHint.style.color = '#d32f2f';
+      previewContainer.innerHTML = '';
+      
+      // Submit butonunu aktif et
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = editingListing ? 'Değişiklikleri Kaydet' : 'İlanı Yayınla';
+      }
+    }
+  };
+  
+  video.onerror = () => {
+    statusHint.innerHTML = '❌ Hata: Video dosyası okunurken hata oluştu';
+    statusHint.style.color = '#d32f2f';
+    previewContainer.innerHTML = '';
+    selectedVideoFile = null;
+    uploadedVideoTempPath = null;
+  };
+  
+  video.src = URL.createObjectURL(file);
+}
+
+function formatDuration(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function removeVideo() {
+  const videoInput = document.getElementById('formVideo');
+  const previewContainer = document.getElementById('videoPreviewContainer');
+  const statusHint = document.getElementById('videoStatusHint');
+  
+  // Temp video varsa sil
+  if (uploadedVideoTempPath) {
+    deleteTempVideo(uploadedVideoTempPath);
+  }
+  
+  videoInput.value = '';
+  selectedVideoFile = null;
+  uploadedVideoTempPath = null;
+  videoUploadInProgress = false;
+  previewContainer.innerHTML = '';
+  if (statusHint) statusHint.innerHTML = '';
+}
+
+window.removeVideo = removeVideo;
+
+/**
+ * Temp klasördeki videoyu sil
+ */
+async function deleteTempVideo(tempUrl) {
+  if (!tempUrl) return;
+  
+  try {
+    const response = await fetch(ativ_ajax.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        action: 'ativ_ajax',
+        action_type: 'delete_video_temp',
+        nonce: ativ_ajax.nonce,
+        temp_url: tempUrl
+      })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      console.log('✅ Temp video silindi');
+    }
+  } catch (error) {
+    console.error('Temp video silme hatası:', error);
+  }
+}
+
+/**
+ * Sayfa kapatılırken veya yenilenirken temp video'yu temizle
+ */
+window.addEventListener('beforeunload', (e) => {
+  if (uploadedVideoTempPath) {
+    // Navigator.sendBeacon ile async istek gönder (sayfa kapanırken çalışır)
+    const formData = new FormData();
+    formData.append('action', 'ativ_ajax');
+    formData.append('action_type', 'delete_video_temp');
+    formData.append('nonce', ativ_ajax.nonce);
+    formData.append('temp_url', uploadedVideoTempPath);
+    
+    navigator.sendBeacon(ativ_ajax.url, formData);
+  }
+});
+
+/**
+ * Video dosyasını TEMP klasörüne yükle (progress bar ile)
+ */
+async function uploadVideoToTemp(file) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('action', 'ativ_ajax');
+    formData.append('action_type', 'upload_video_temp');
+    formData.append('nonce', ativ_ajax.nonce);
+    formData.append('video', file);
+    
+    const xhr = new XMLHttpRequest();
+    
+    // Progress event - yükleme ilerlemesi
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percentComplete = Math.round((e.loaded / e.total) * 100);
+        updateVideoUploadProgressInline(percentComplete);
+      }
+    });
+    
+    // Load event - işlem tamamlandı
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          
+          if (!data.success) {
+            reject(new Error(data.data || 'Video yüklenirken hata oluştu'));
+          } else {
+            console.log('✅ Video temp klasöre yüklendi:', data.data.temp_url);
+            resolve(data.data.temp_url);
+          }
+        } catch (error) {
+          reject(new Error('Sunucu yanıtı işlenemedi'));
+        }
+      } else {
+        reject(new Error('Sunucu hatası: ' + xhr.status));
+      }
+    });
+    
+    // Error event
+    xhr.addEventListener('error', () => {
+      reject(new Error('Ağ hatası - video yüklenemedi'));
+    });
+    
+    // Abort event
+    xhr.addEventListener('abort', () => {
+      reject(new Error('Video yükleme iptal edildi'));
+    });
+    
+    xhr.open('POST', ativ_ajax.url);
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Inline video yükleme progress'ini göster (form içinde)
+ */
+function updateVideoUploadProgressInline(percent) {
+  const statusHint = document.getElementById('videoStatusHint');
+  const progressFill = document.getElementById('videoProgressFill');
+  const uploadStatus = document.getElementById('videoUploadStatus');
+  
+  if (statusHint) {
+    statusHint.innerHTML = `📤 Video yükleniyor... ${percent}%`;
+  }
+  
+  if (progressFill) {
+    progressFill.style.width = percent + '%';
+  }
+  
+  if (uploadStatus) {
+    uploadStatus.textContent = `Yükleniyor... ${percent}%`;
+  }
+}
+
+/**
+ * Video dosyasını upload et (progress bar ile)
+ */
+async function uploadVideo(file, listingId) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('action', 'ativ_ajax');
+    formData.append('action_type', 'upload_video');
+    formData.append('nonce', ativ_ajax.nonce);
+    formData.append('video', file);
+    
+    if (listingId) {
+      formData.append('listing_id', listingId);
+    }
+    
+    const xhr = new XMLHttpRequest();
+    
+    // Progress event - yükleme ilerlemesi
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percentComplete = (e.loaded / e.total) * 100;
+        updateVideoUploadProgress(percentComplete);
+      }
+    });
+    
+    // Load event - işlem tamamlandı
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          
+          if (!data.success) {
+            reject(new Error(data.data || 'Video yüklenirken hata oluştu'));
+          } else {
+            console.log('✅ Video başarıyla yüklendi');
+            resolve(data);
+          }
+        } catch (error) {
+          reject(new Error('Sunucu yanıtı işlenemedi'));
+        }
+      } else {
+        reject(new Error('Sunucu hatası: ' + xhr.status));
+      }
+    });
+    
+    // Error event
+    xhr.addEventListener('error', () => {
+      reject(new Error('Ağ hatası - video yüklenemedi'));
+    });
+    
+    // Abort event
+    xhr.addEventListener('abort', () => {
+      reject(new Error('Video yükleme iptal edildi'));
+    });
+    
+    xhr.open('POST', ativ_ajax.url);
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Video yükleme progress'ini göster
+ */
+function updateVideoUploadProgress(percent) {
+  const loadingOverlay = document.querySelector('.modal-loading-overlay');
+  if (loadingOverlay) {
+    const messageDiv = loadingOverlay.querySelector('.loading-message');
+    if (messageDiv) {
+      messageDiv.innerHTML = `
+        <div class="loading-spinner"></div>
+        <p>Video yükleniyor... ${Math.round(percent)}%</p>
+        <div class="upload-progress-bar">
+          <div class="upload-progress-fill" style="width: ${percent}%"></div>
+        </div>
+      `;
+    }
+  }
+}
+
 

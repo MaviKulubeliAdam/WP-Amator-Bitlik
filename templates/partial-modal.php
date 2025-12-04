@@ -22,10 +22,26 @@
    <div class="form-section">
     <form id="addListingForm">
      <div class="form-group"><label for="formTitle">İlan Başlığı *</label> <input type="text" id="formTitle" required placeholder="Örn: Yaesu FT-991A HF/VHF/UHF"></div>
-     <div class="form-group"><label for="formCategory">Kategori *</label> <select id="formCategory" required> <option value="">Kategori seçin</option> <option value="transceiver">Telsiz</option> <option value="antenna">Anten</option> <option value="amplifier">Amplifikatör</option> <option value="accessory">Aksesuar</option> <option value="other">Diğer</option> </select></div>
+     
+     <div class="form-group category-select-wrapper">
+      <label for="formCategory">Kategori *</label>
+      <div class="category-select-container">
+        <input type="text" id="formCategory" required placeholder="Kategori seçin..." autocomplete="off" readonly>
+        <div class="category-dropdown" id="formCategoryDropdown"></div>
+      </div>
+     </div>
+     
      <div class="form-group"><label for="formBrand">Marka *</label> <input type="text" id="formBrand" required placeholder="Örn: Yaesu, Icom, Kenwood"></div>
      <div class="form-group"><label for="formModel">Model *</label> <input type="text" id="formModel" required placeholder="Örn: FT-991A"></div>
-     <div class="form-group"><label for="formCondition">Durum *</label> <select id="formCondition" required> <option value="">Durum seçin</option> <option value="Sıfır">Sıfır</option> <option value="Kullanılmış">Kullanılmış</option> <option value="Arızalı">Arızalı</option> </select></div>
+     
+     <div class="form-group condition-select-wrapper">
+      <label for="formCondition">Durum *</label>
+      <div class="condition-select-container">
+        <input type="text" id="formCondition" required placeholder="Durum seçin..." autocomplete="off" readonly>
+        <div class="condition-dropdown" id="formConditionDropdown"></div>
+      </div>
+     </div>
+     
      <div class="form-group"><label for="formPrice">Fiyat *</label>
       <div style="display: flex; gap: 12px;"><input type="number" id="formPrice" required min="0" step="0.01" placeholder="0" style="flex: 2;"> <select id="formCurrency" required style="flex: 1; padding: 14px 16px; border: 2px solid #e0e0e0; border-radius: 10px; font-size: 15px;"> <option value="TRY">₺ TRY</option> <option value="USD">$ USD</option> <option value="EUR">€ EUR</option> </select></div>
      </div>
@@ -36,7 +52,16 @@
         <span class="file-upload-text">Görselleri seçin veya sürükleyin</span> <span class="file-upload-hint">PNG, JPG, JPEG (Max 5 dosya)</span> </label></div>
       <div id="imagePreviewContainer" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 16px;"></div>
      </div>
-     <div class="form-group"><label for="formCallsign">Çağrı İşareti *</label> <input type="text" id="formCallsign" required placeholder="Örn: TA1ABC"></div>
+     
+     <div class="form-group"><label>Ürün Videosu (Opsiyonel)</label>
+      <div class="file-upload-wrapper"><input type="file" id="formVideo" accept="video/mp4,video/webm" class="file-input"> <label for="formVideo" class="file-upload-label">
+        <svg width="24" height="24" viewbox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"></path> <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+        <span class="file-upload-text">Videoyu seçin veya sürükleyin</span> <span class="file-upload-hint">MP4, WebM (Max 5 dakika, 150MB)</span> </label></div>
+      <div id="videoPreviewContainer" style="margin-top: 12px;"></div>
+      <small id="videoStatusHint" style="color: #666; display: block; margin-top: 8px;"></small>
+     </div>
+     
+<div class="form-group"><label for="formCallsign">Çağrı İşareti *</label> <input type="text" id="formCallsign" required placeholder="Örn: TA1ABC"></div>
      <div class="form-group"><label for="formSellerName">Ad Soyad *</label> <input type="text" id="formSellerName" required placeholder="Adınız ve soyadınız"></div>
     <div class="form-group city-select-wrapper">
       <label for="formLocation">Konum *</label>

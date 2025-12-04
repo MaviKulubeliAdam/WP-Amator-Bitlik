@@ -49,6 +49,9 @@
             <div class="dropdown-option" data-value="Arızalı">
               Arızalı
             </div>
+            <div class="dropdown-option" data-value="El Yapımı">
+              El Yapımı
+            </div>
           </div>
         </div>
       </div>
