@@ -1,4 +1,58 @@
 <?php
+/**
+ * Plugin Name: Amatör Telsiz İlan Vitrini
+ * Description: Amatör telsiz ekipmanları için ilan vitrini
+ * Version: 1.0
+ * Author: Your Name
+ */
+
+// Kullanıcılar tablosu oluşturma
+register_activation_hook(__FILE__, function() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+    $charset_collate = $wpdb->get_charset_collate();
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id BIGINT(20) UNSIGNED NOT NULL,
+        callsign VARCHAR(50) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) NOT NULL,
+        location VARCHAR(100) NOT NULL,
+        phone VARCHAR(20) NOT NULL,
+        PRIMARY KEY (id),
+        KEY user_id (user_id)
+    ) $charset_collate;";
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+});
+
+// AJAX ile kullanıcı kaydı ekleme
+add_action('wp_ajax_amator_bitlik_add_user', function() {
+    $required = ['user_id', 'callsign', 'name', 'email', 'location', 'phone'];
+    foreach ($required as $field) {
+        if (empty($_POST[$field])) {
+            wp_send_json_error(['message' => 'Tüm alanlar zorunludur.']);
+            wp_die();
+        }
+    }
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+    $result = $wpdb->insert($table_name, [
+        'user_id'  => intval($_POST['user_id']),
+        'callsign' => strtoupper(str_replace(' ', '', sanitize_text_field($_POST['callsign']))),
+        'name'     => sanitize_text_field($_POST['name']),
+        'email'    => sanitize_email($_POST['email']),
+        'location' => sanitize_text_field($_POST['location']),
+        'phone'    => sanitize_text_field($_POST['phone']),
+    ], ['%d', '%s', '%s', '%s', '%s', '%s']);
+    if ($result) {
+        wp_send_json_success(['message' => 'Kayıt başarıyla eklendi.']);
+    } else {
+        wp_send_json_error(['message' => 'Kayıt eklenemedi.']);
+    }
+    wp_die();
+});
+
 // Şehirler tablosu oluşturma ve doldurma
 register_activation_hook(__FILE__, function() {
     global $wpdb;
@@ -86,6 +140,8 @@ class AmateurTelsizIlanVitrini {
         add_shortcode('amator_telsiz_ilan', array($this, 'display_listings'));
         // Kullanıcının kendi ilanlarını gösteren shortcode
         add_shortcode('amator_my_listings', array($this, 'display_my_listings'));
+        // Satıcı profil sayfası shortcode'u
+        add_shortcode('amator_seller_profile', array($this, 'display_seller_profile'));
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
         
@@ -107,6 +163,16 @@ class AmateurTelsizIlanVitrini {
         // AJAX işleyicileri kaydet
         add_action('wp_ajax_ativ_ajax', array($this, 'handle_ajax'));
         add_action('wp_ajax_nopriv_ativ_ajax', array($this, 'handle_ajax'));
+        
+        // Satıcı Profili AJAX Actions
+        add_action('wp_ajax_ativ_load_profile_info', array($this, 'ajax_load_profile_info'));
+        add_action('wp_ajax_ativ_save_profile_info', array($this, 'ajax_save_profile_info'));
+        add_action('wp_ajax_ativ_load_email_alerts', array($this, 'ajax_load_email_alerts'));
+        add_action('wp_ajax_ativ_save_email_alerts', array($this, 'ajax_save_email_alerts'));
+        add_action('wp_ajax_ativ_load_search_alerts', array($this, 'ajax_load_search_alerts'));
+        add_action('wp_ajax_ativ_save_search_alert', array($this, 'ajax_save_search_alert'));
+        add_action('wp_ajax_ativ_delete_search_alert', array($this, 'ajax_delete_search_alert'));
+        add_action('wp_ajax_get_user_listings', array($this, 'ajax_get_user_listings'));
         
         // Custom cron interval'ı tanımla (6 saat)
         add_filter('cron_schedules', array($this, 'add_custom_cron_schedules'));
@@ -410,76 +476,315 @@ class AmateurTelsizIlanVitrini {
         include ATIV_PLUGIN_PATH . 'templates/my-listings.php';
         return ob_get_clean();
     }
-    
-   public function handle_ajax() {
-    $action = $_POST['action_type'] ?? $_REQUEST['action'] ?? '';
-    
-    // Admin edit modal için AJAX
-    if ($action === 'ativ_get_listing_for_admin') {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Yetkisiz erişim');
+
+    public function display_seller_profile() {
+        if (!is_user_logged_in()) {
+            return '<div class="ativ-message">Erişim için <a href="' . wp_login_url(get_permalink()) . '">giriş yapmalısınız</a>.</div>';
         }
-        
-        // GÜVENLİK: Admin işlemleri için nonce kontrolü
-        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
-            wp_send_json_error('Güvenlik doğrulaması başarısız');
-        }
-        
-        $id = intval($_POST['id'] ?? 0);
-        $listing = $this->get_listing_by_id($id);
-        
-        if (!$listing) {
-            wp_send_json_error('İlan bulunamadı');
-        }
-        
-        // Form HTML'i oluştur
-        $form_html = $this->generate_admin_edit_form($listing);
-        wp_send_json_success($form_html);
+
+        // Script ve style'ları yükle
+        $this->enqueue_scripts();
+
+        ob_start();
+        include ATIV_PLUGIN_PATH . 'templates/seller-profile.php';
+        return ob_get_clean();
     }
-    
-    // Admin tarafından ilanı güncelle
-    if ($action === 'ativ_update_listing_admin') {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Yetkisiz erişim');
+
+    // ========== SATICI PROFİLİ AJAX HANDLERS ==========
+
+    public function ajax_load_profile_info() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
         }
-        
-        // GÜVENLİK: Admin işlemleri için nonce kontrolü
-        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
-            wp_send_json_error('Güvenlik doğrulaması başarısız');
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
+        $user_id = get_current_user_id();
+        $current_user = get_user_by('id', $user_id);
+
+        // Çağrı işareti: meta varsa onu, yoksa username'i kullan
+        $callsign_meta = get_user_meta($user_id, 'ativ_profile_callsign', true);
+        $callsign = $callsign_meta;
+        if (empty($callsign)) {
+            $callsign = strtoupper(str_replace(' ', '', $current_user->user_login));
+        } else {
+            $callsign = strtoupper(str_replace(' ', '', $callsign));
         }
-        
-        $id = intval($_POST['id'] ?? 0);
-        $this->update_listing_admin($id, $_POST);
-        wp_send_json_success('İlan güncellendi');
+
+        $profile_data = array(
+            'name' => $current_user->display_name,
+            'email' => $current_user->user_email,
+            'callsign' => $callsign,
+            'phone' => get_user_meta($user_id, 'ativ_profile_phone', true),
+            'location' => get_user_meta($user_id, 'ativ_profile_location', true)
+        );
+
+        wp_send_json_success($profile_data);
     }
-    
-    // İlan durumunu değiştir (onay/reddet)
-    if ($action === 'ativ_change_listing_status') {
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Yetkisiz erişim');
+
+    public function ajax_save_profile_info() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
         }
-        
-        // GÜVENLİK: Admin işlemleri için nonce kontrolü
-        if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
-            wp_send_json_error('Güvenlik doğrulaması başarısız');
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
+        $user_id = get_current_user_id();
+
+        // Yalnızca güvenli alanları güncelle
+        if (isset($_POST['name']) && !empty($_POST['name'])) {
+            wp_update_user(array(
+                'ID' => $user_id,
+                'display_name' => sanitize_text_field($_POST['name'])
+            ));
         }
-        
-        $id = intval($_POST['id'] ?? 0);
-        $status = sanitize_text_field($_POST['status'] ?? '');
-        $rejection_reason = isset($_POST['rejection_reason']) ? wp_kses_post($_POST['rejection_reason']) : '';
-        
-        if (!in_array($status, ['approved', 'rejected', 'pending'])) {
-            wp_send_json_error('Geçersiz durum');
+
+        // User meta'yı güncelle
+        update_user_meta($user_id, 'ativ_profile_callsign', sanitize_text_field($_POST['callsign'] ?? ''));
+        update_user_meta($user_id, 'ativ_profile_phone', sanitize_text_field($_POST['phone'] ?? ''));
+        update_user_meta($user_id, 'ativ_profile_location', sanitize_text_field($_POST['location'] ?? ''));
+
+        wp_send_json_success('Profil güncellendi');
+    }
+
+    public function ajax_load_email_alerts() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
         }
-        
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
+        $user_id = get_current_user_id();
+
+        $alerts_data = array(
+            'alert_new_requests' => (bool)get_user_meta($user_id, 'ativ_alert_new_requests', true) ?: true,
+            'alert_inquiries' => (bool)get_user_meta($user_id, 'ativ_alert_inquiries', true) ?: true,
+            'alert_listing_approval' => (bool)get_user_meta($user_id, 'ativ_alert_listing_approval', true) ?: true,
+            'alert_system_notifications' => (bool)get_user_meta($user_id, 'ativ_alert_system_notifications', true) ?: true,
+            'email_frequency' => get_user_meta($user_id, 'ativ_email_frequency', true) ?: 'immediate'
+        );
+
+        wp_send_json_success($alerts_data);
+    }
+
+    public function ajax_save_email_alerts() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
+        $user_id = get_current_user_id();
+
+        update_user_meta($user_id, 'ativ_alert_new_requests', isset($_POST['alert_new_requests']) ? 1 : 0);
+        update_user_meta($user_id, 'ativ_alert_inquiries', isset($_POST['alert_inquiries']) ? 1 : 0);
+        update_user_meta($user_id, 'ativ_alert_listing_approval', isset($_POST['alert_listing_approval']) ? 1 : 0);
+        update_user_meta($user_id, 'ativ_alert_system_notifications', isset($_POST['alert_system_notifications']) ? 1 : 0);
+        update_user_meta($user_id, 'ativ_email_frequency', sanitize_text_field($_POST['email_frequency'] ?? 'immediate'));
+
+        wp_send_json_success('Ayarlar güncellendi');
+    }
+
+    public function ajax_load_search_alerts() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
         global $wpdb;
-        $table_name = $wpdb->prefix . 'amator_ilanlar';
-        
-        // İlan bilgilerini al
-        $listing = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id), ARRAY_A);
-        if (!$listing) {
-            wp_send_json_error('İlan bulunamadı');
+        $user_id = get_current_user_id();
+        $table_name = $wpdb->prefix . 'amator_search_alerts';
+
+        // Tablo yoksa boş döndür
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            wp_send_json_success(array());
         }
+
+        $alerts = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE user_id = %d ORDER BY created_at DESC",
+            $user_id
+        ), ARRAY_A);
+
+        wp_send_json_success($alerts ?: array());
+    }
+
+    public function ajax_save_search_alert() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $table_name = $wpdb->prefix . 'amator_search_alerts';
+
+        // Tablo yoksa oluştur
+        $this->create_search_alerts_table();
+
+        $result = $wpdb->insert($table_name, array(
+            'user_id' => $user_id,
+            'alert_name' => sanitize_text_field($_POST['alert_name'] ?? ''),
+            'category' => sanitize_text_field($_POST['category'] ?? ''),
+            'condition' => sanitize_text_field($_POST['condition'] ?? ''),
+            'brand' => sanitize_text_field($_POST['brand'] ?? ''),
+            'location' => sanitize_text_field($_POST['location'] ?? ''),
+            'min_price' => intval($_POST['min_price'] ?? 0),
+            'max_price' => intval($_POST['max_price'] ?? 0),
+            'frequency' => sanitize_text_field($_POST['frequency'] ?? 'immediate'),
+            'created_at' => current_time('mysql')
+        ), array('%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s'));
+
+        if ($result) {
+            wp_send_json_success('Arama uyarısı oluşturuldu');
+        } else {
+            wp_send_json_error('Veritabanı hatası: ' . $wpdb->last_error);
+        }
+    }
+
+    public function ajax_delete_search_alert() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $alert_id = intval($_POST['alert_id'] ?? 0);
+        $table_name = $wpdb->prefix . 'amator_search_alerts';
+
+        $wpdb->delete($table_name, array(
+            'id' => $alert_id,
+            'user_id' => $user_id
+        ), array('%d', '%d'));
+
+        wp_send_json_success('Arama uyarısı silindi');
+    }
+
+    /**
+     * Kullanıcının ilanlarını getir (Admin için)
+     */
+    public function ajax_get_user_listings() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Yetkiniz yok');
+        }
+
+        global $wpdb;
+        $user_id = intval($_GET['user_id'] ?? 0);
+        $table_name = $wpdb->prefix . 'amator_ilanlar';
+
+        $listings = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, baslik, kategori, fiyat, para_birimi, durum, created_at 
+             FROM $table_name 
+             WHERE user_id = %d 
+             ORDER BY created_at DESC",
+            $user_id
+        ));
+
+        wp_send_json_success($listings);
+    }
+
+    private function create_search_alerts_table() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'amator_search_alerts';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+            return;
+        }
+
+        $sql = "CREATE TABLE $table_name (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) NOT NULL,
+            alert_name varchar(255) NOT NULL,
+            category varchar(100),
+            condition varchar(100),
+            brand varchar(255),
+            location varchar(255),
+            min_price int(11) DEFAULT 0,
+            max_price int(11) DEFAULT 0,
+            frequency varchar(20) DEFAULT 'immediate',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY user_id (user_id)
+        ) $charset_collate;";
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta($sql);
+    }
+
+    public function handle_ajax() {
+        $action = $_POST['action_type'] ?? $_REQUEST['action'] ?? '';
+        
+        // Admin edit modal için AJAX
+        if ($action === 'ativ_get_listing_for_admin') {
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error('Yetkisiz erişim');
+            }
+            
+            // GÜVENLİK: Admin işlemleri için nonce kontrolü
+            if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
+                wp_send_json_error('Güvenlik doğrulaması başarısız');
+            }
+            
+            $id = intval($_POST['id'] ?? 0);
+            $listing = $this->get_listing_by_id($id);
+            
+            if (!$listing) {
+                wp_send_json_error('İlan bulunamadı');
+            }
+            
+            // Form HTML'i oluştur
+            $form_html = $this->generate_admin_edit_form($listing);
+            wp_send_json_success($form_html);
+        }
+        
+        // Admin tarafından ilanı güncelle
+        if ($action === 'ativ_update_listing_admin') {
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error('Yetkisiz erişim');
+            }
+            
+            // GÜVENLİK: Admin işlemleri için nonce kontrolü
+            if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
+                wp_send_json_error('Güvenlik doğrulaması başarısız');
+            }
+            
+            $id = intval($_POST['id'] ?? 0);
+            $this->update_listing_admin($id, $_POST);
+            wp_send_json_success('İlan güncellendi');
+        }
+        
+        // İlan durumunu değiştir (onay/reddet)
+        if ($action === 'ativ_change_listing_status') {
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error('Yetkisiz erişim');
+            }
+            
+            // GÜVENLİK: Admin işlemleri için nonce kontrolü
+            if (!isset($_POST['_wpnonce']) || !wp_verify_nonce($_POST['_wpnonce'], 'ativ_admin_nonce')) {
+                wp_send_json_error('Güvenlik doğrulaması başarısız');
+            }
+            
+            $id = intval($_POST['id'] ?? 0);
+            $status = sanitize_text_field($_POST['status'] ?? '');
+            $rejection_reason = isset($_POST['rejection_reason']) ? wp_kses_post($_POST['rejection_reason']) : '';
+            
+            if (!in_array($status, ['approved', 'rejected', 'pending'])) {
+                wp_send_json_error('Geçersiz durum');
+            }
+            
+            global $wpdb;
+            $table_name = $wpdb->prefix . 'amator_ilanlar';
+            
+            // İlan bilgilerini al
+            $listing = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id), ARRAY_A);
+            if (!$listing) {
+                wp_send_json_error('İlan bulunamadı');
+            }
+    
         
         $update_data = array('status' => $status);
         if ($status === 'rejected') {
@@ -1741,6 +2046,15 @@ class AmateurTelsizIlanVitrini {
             'manage_options',                          // Yetki
             'ativ-listings',                           // Menu slug
             array($this, 'admin_listings_page')        // Callback
+        );
+        
+        add_submenu_page(
+            'ativ-listings',                            // Parent menu slug
+            'Kullanıcılar',                            // Sayfa başlığı
+            'Kullanıcılar',                            // Menü başlığı
+            'manage_options',                          // Yetki
+            'ativ-users',                              // Menu slug
+            array($this, 'admin_users_page')          // Callback
         );
         
         add_submenu_page(
@@ -3189,6 +3503,13 @@ class AmateurTelsizIlanVitrini {
         $wpdb->update($table_name, $update_data, array('id' => $id));
         
         return true;
+    }
+    
+    /**
+     * Admin Kullanıcılar Sayfası
+     */
+    public function admin_users_page() {
+        include ATIV_PLUGIN_PATH . 'templates/admin-users.php';
     }
     
     /**

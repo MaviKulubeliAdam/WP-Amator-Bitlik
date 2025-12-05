@@ -1,4 +1,4 @@
-<script>pageType = 'gallery';</script>
+<script>window.pageType = 'gallery';</script>
 <div class="container">
   <header class="header">
     <h1>Amatör Telsiz İlan Vitrini</h1>

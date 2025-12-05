@@ -1,5 +1,5 @@
 <div id="ativ-container" class="container my-listings-page">
-  <script>pageType = 'my-listings';</script>
+  <script>window.pageType = 'my-listings';</script>
   <?php
   // Telefon numarasını formatla (detay gösterimi için: +90 548 222 99 89)
   function format_phone_for_display($phone) {

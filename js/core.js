@@ -52,9 +52,17 @@ let pageType = 'gallery';
  * Uygulama başlatma fonksiyonu
  */
 async function initApp() {
-  await loadListings();
-  populateFilterOptions();
-  applyFiltersAndRender();
+  // Mevcut pageType'ı kontrol et (window'dan gelirse onu kullan)
+  const currentPageType = typeof window.pageType !== 'undefined' ? window.pageType : pageType;
+  
+  if (currentPageType === 'gallery' || currentPageType === 'my-listings') {
+    console.log('[DEBUG] İlanlar yükleniyor... (pageType:', currentPageType, ')');
+    await loadListings();
+    populateFilterOptions();
+    applyFiltersAndRender();
+  } else {
+    console.log('[DEBUG] Bu sayfada ilanlar yüklenmeyecek (pageType:', currentPageType, ')');
+  }
 
   const searchInput = document.getElementById('searchInput');
   if (searchInput) {

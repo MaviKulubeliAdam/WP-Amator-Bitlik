@@ -284,6 +284,11 @@ function setupMyListingsDropdowns() {
  * Form ayarlarını yapar
  */
 function setupForm() {
+  // Eğer form sayfada yoksa (örn: seller-profile sayfasında) çık
+  if (!document.getElementById('addListingForm')) {
+    return;
+  }
+
   document.getElementById('addListingForm').addEventListener('submit', handleFormSubmit);
   document.getElementById('formImages').addEventListener('change', handleImageUpload);
   
