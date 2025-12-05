@@ -311,7 +311,7 @@ class AmateurTelsizIlanVitrini {
         location varchar(100) NOT NULL,
         seller_email varchar(100) NOT NULL,
         seller_phone varchar(20) NOT NULL,
-        status enum('pending', 'approved', 'rejected') DEFAULT 'pending',
+        status enum('pending', 'approved', 'rejected', 'suspended') DEFAULT 'pending',
         rejection_reason longtext,
         created_at datetime DEFAULT CURRENT_TIMESTAMP,
         updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1294,6 +1294,11 @@ class AmateurTelsizIlanVitrini {
     
     $user_id = get_current_user_id();
     
+    // Check if user is banned
+    if ($this->is_user_banned($user_id)) {
+        wp_send_json_error('Hesabınız yasaklanmıştır. İlan düzenleyemezsiniz.');
+    }
+    
     // İlanın kullanıcıya ait olup olmadığını kontrol et
     $existing_listing = $wpdb->get_row($wpdb->prepare("SELECT user_id, images, featured_image_index, emoji, status FROM $table_name WHERE id = %d", $id), ARRAY_A);
     
@@ -1303,6 +1308,11 @@ class AmateurTelsizIlanVitrini {
     
     if ($existing_listing['user_id'] != $user_id) {
         wp_send_json_error('Bu ilanı düzenleme yetkiniz yok');
+    }
+    
+    // Check if listing is suspended
+    if ($existing_listing['status'] === 'suspended') {
+        wp_send_json_error('Hesabınız yasaklanmıştır. İlan düzenleyemezsiniz.');
     }
     
     $data = $_POST;
@@ -1534,6 +1544,11 @@ class AmateurTelsizIlanVitrini {
     
     $user_id = get_current_user_id();
     
+    // Check if user is banned
+    if ($this->is_user_banned($user_id)) {
+        wp_send_json_error('Hesabınız yasaklanmıştır. İlan silemezsiniz.');
+    }
+    
     // İlanın kullanıcıya ait olup olmadığını kontrol et
     $existing_listing = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id), ARRAY_A);
     
@@ -1543,6 +1558,11 @@ class AmateurTelsizIlanVitrini {
     
     if ($existing_listing['user_id'] != $user_id) {
         wp_send_json_error('Bu ilanı silme yetkiniz yok');
+    }
+    
+    // Check if listing is suspended
+    if ($existing_listing['status'] === 'suspended') {
+        wp_send_json_error('Hesabınız yasaklanmıştır. İlan silemezsiniz.');
     }
     
     // İlanın görsellerini sil
@@ -2023,6 +2043,16 @@ class AmateurTelsizIlanVitrini {
             'other' => '❓ Diğer'
         );
         return isset($categories[$category]) ? $categories[$category] : $category;
+    }
+    
+    /**
+     * Check if user is banned
+     * @param int $user_id User ID to check
+     * @return bool True if user is banned, false otherwise
+     */
+    private function is_user_banned($user_id) {
+        $is_banned = get_user_meta($user_id, 'ativ_user_banned', true);
+        return !empty($is_banned) && $is_banned === '1';
     }
     
     /**

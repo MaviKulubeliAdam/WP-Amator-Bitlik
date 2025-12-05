@@ -71,6 +71,7 @@
             <div class="dropdown-option" data-value="approved">✅ Onaylı</div>
             <div class="dropdown-option" data-value="pending">⏳ Onay Bekleyen</div>
             <div class="dropdown-option" data-value="rejected">❌ Reddedilen</div>
+            <div class="dropdown-option" data-value="suspended">🚫 Askıya Alındı</div>
           </div>
         </div>
       </div>
@@ -117,7 +118,7 @@
             }
           ?>
           <div class="listing-row-wrapper" style="display: flex; flex-direction: column;">
-            <div class="listing-row" data-listing-id="<?php echo esc_attr($listing['id']); ?>" style="position: relative; border: 2px solid <?php echo ($listing['status'] === 'rejected' ? '#dc3545' : ($listing['status'] === 'pending' ? '#ffc107' : '#28a745')); ?>; border-radius: 4px; display: flex; flex-wrap: wrap; cursor: pointer;" onclick="toggleListingDetails(this.querySelector('.listing-row-title'))">
+            <div class="listing-row" data-listing-id="<?php echo esc_attr($listing['id']); ?>" style="position: relative; border: 2px solid <?php echo ($listing['status'] === 'suspended' ? '#6c757d' : ($listing['status'] === 'rejected' ? '#dc3545' : ($listing['status'] === 'pending' ? '#ffc107' : '#28a745'))); ?>; border-radius: 4px; display: flex; flex-wrap: wrap; cursor: pointer;" onclick="toggleListingDetails(this.querySelector('.listing-row-title'))">
               <div class="listing-row-image">
                 <?php if ($image_url): ?>
                   <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($listing['title']); ?>">
@@ -128,7 +129,9 @@
               <div class="listing-row-info" style="flex: 1; min-width: 0; overflow-wrap: break-word; word-wrap: break-word;">
                 <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
                   <h3 class="listing-row-title" style="cursor: pointer; margin: 0;"><?php echo esc_html($listing['title']); ?></h3>
-                  <?php if ($listing['status'] === 'rejected'): ?>
+                  <?php if ($listing['status'] === 'suspended'): ?>
+                    <span style="background: #6c757d; color: white; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">🚫 Askıya Alındı</span>
+                  <?php elseif ($listing['status'] === 'rejected'): ?>
                     <span style="background: #dc3545; color: white; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">❌ Reddedildi</span>
                   <?php elseif ($listing['status'] === 'pending'): ?>
                     <span style="background: #ffc107; color: #333; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">⏳ Beklemede</span>
@@ -137,8 +140,14 @@
                   <?php endif; ?>
                 </div>
                 
-                <!-- Red nedeni veya pending uyarısı -->
-                <?php if ($listing['status'] === 'rejected'): ?>
+                <!-- Red nedeni veya pending uyarısı veya suspend uyarısı -->
+                <?php if ($listing['status'] === 'suspended'): ?>
+                <div style="background: #f8f9fa; border-left: 3px solid #6c757d; padding: 10px; margin-bottom: 8px; border-radius: 2px; word-wrap: break-word; overflow-wrap: break-word;">
+                  <div style="color: #495057; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal;">
+                    🚫 <strong>Hesabınız yasaklanmıştır.</strong> İlanlarınız askıya alınmıştır ve düzenleme/silme işlemi yapamazsınız.
+                  </div>
+                </div>
+                <?php elseif ($listing['status'] === 'rejected'): ?>
                 <div style="background: #ffebee; border-left: 3px solid #dc3545; padding: 10px; margin-bottom: 8px; border-radius: 2px; word-wrap: break-word; overflow-wrap: break-word;">
                   <div style="color: #721c24; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal;">
                     <strong>Red Nedeni:</strong> <?php echo esc_html($listing['rejection_reason'] ?? 'Neden belirtilmemiş'); ?>
@@ -165,12 +174,16 @@
                 <div class="price-amount"><?php echo esc_html($listing['price']); ?> <?php echo esc_html($listing['currency'] ?? 'TRY'); ?></div>
               </div>
               <div class="listing-row-actions">
-                <?php if ($listing['status'] === 'rejected' || $listing['status'] === 'pending'): ?>
+                <?php if ($listing['status'] === 'suspended'): ?>
+                  <button class="action-btn edit-btn" onclick="event.stopPropagation(); showBanWarning();" title="Düzenle" style="opacity: 0.6; cursor: not-allowed;">✏️ Düzenle</button>
+                  <button class="action-btn delete-btn" onclick="event.stopPropagation(); showBanWarning();" title="Sil" style="opacity: 0.6; cursor: not-allowed;">🗑️ Sil</button>
+                <?php elseif ($listing['status'] === 'rejected' || $listing['status'] === 'pending'): ?>
                   <button class="action-btn edit-btn" onclick="event.stopPropagation(); window.editMyListing(<?php echo intval($listing['id']); ?>)" title="Düzenle">✏️ Düzenle</button>
+                  <button class="action-btn delete-btn" onclick="event.stopPropagation(); window.confirmDeleteListing(<?php echo intval($listing['id']); ?>)" title="Sil">🗑️ Sil</button>
                 <?php else: ?>
                   <button class="action-btn edit-btn" onclick="event.stopPropagation(); window.editListing(<?php echo intval($listing['id']); ?>)" title="Düzenle">✏️ Düzenle</button>
+                  <button class="action-btn delete-btn" onclick="event.stopPropagation(); window.confirmDeleteListing(<?php echo intval($listing['id']); ?>)" title="Sil">🗑️ Sil</button>
                 <?php endif; ?>
-                <button class="action-btn delete-btn" onclick="event.stopPropagation(); window.confirmDeleteListing(<?php echo intval($listing['id']); ?>)" title="Sil">🗑️ Sil</button>
               </div>
             </div>
             <div class="listing-row-details-expanded">

@@ -155,3 +155,72 @@
   </div>
  </div>
 </div>
+
+<!-- Ban Warning Modal -->
+<div id="banWarningModal" class="modal-overlay" style="display: none;">
+  <div class="modal-content" style="max-width: 500px;">
+    <div class="modal-header">
+      <h2>🚫 Hesap Yasaklandı</h2>
+      <button class="modal-close" id="banWarningCloseBtn" aria-label="Kapat">×</button>
+    </div>
+    <div class="modal-body" style="text-align: center; padding: 30px;">
+      <div style="font-size: 64px; margin-bottom: 20px;">🚫</div>
+      <p style="font-size: 16px; color: #495057; line-height: 1.6; margin-bottom: 20px;">
+        <strong>Hesabınız yasaklanmıştır.</strong><br>
+        İlanlarınız askıya alınmıştır ve düzenleme veya silme işlemi yapamazsınız.
+      </p>
+      <p style="font-size: 14px; color: #6c757d; margin-bottom: 20px;">
+        Daha fazla bilgi için site yöneticisiyle iletişime geçin.
+      </p>
+      <button type="button" class="btn-submit" id="banWarningOkBtn" style="width: 100%;">
+        Tamam
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Ban warning modal functions
+function showBanWarning() {
+  const modal = document.getElementById('banWarningModal');
+  if (modal) {
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+function closeBanWarning() {
+  const modal = document.getElementById('banWarningModal');
+  if (modal) {
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+  }
+}
+
+// Ban warning modal event listeners
+document.addEventListener('DOMContentLoaded', function() {
+  const banWarningCloseBtn = document.getElementById('banWarningCloseBtn');
+  const banWarningOkBtn = document.getElementById('banWarningOkBtn');
+  const banWarningModal = document.getElementById('banWarningModal');
+  
+  if (banWarningCloseBtn) {
+    banWarningCloseBtn.addEventListener('click', closeBanWarning);
+  }
+  
+  if (banWarningOkBtn) {
+    banWarningOkBtn.addEventListener('click', closeBanWarning);
+  }
+  
+  if (banWarningModal) {
+    banWarningModal.addEventListener('click', function(e) {
+      if (e.target === banWarningModal) {
+        closeBanWarning();
+      }
+    });
+  }
+});
+
+// Make functions available globally
+window.showBanWarning = showBanWarning;
+window.closeBanWarning = closeBanWarning;
+</script>
