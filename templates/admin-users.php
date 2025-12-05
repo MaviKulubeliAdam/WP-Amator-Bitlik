@@ -542,7 +542,7 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
                         
                         <button 
                             class="ativ-user-detail-btn"
-                            onclick="showUserDetails(<?php echo esc_js(json_encode($user)); ?>)">
+                            onclick='showUserDetails(<?php echo wp_json_encode($user, JSON_UNESCAPED_UNICODE); ?>)'>
                             🔍 Detay Görüntüle
                         </button>
                     </div>
@@ -581,9 +581,24 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
 </div>
 
 <script>
-function showUserDetails(user) {
+(function() {
+    'use strict';
+    
+    // WordPress AJAX URL'ini tanımla (eğer yoksa)
+    if (typeof ajaxurl === 'undefined') {
+        window.ajaxurl = '<?php echo admin_url('admin-ajax.php'); ?>';
+    }
+
+    window.showUserDetails = function(user) {
     const modal = document.getElementById('userDetailModal');
     const content = document.getElementById('userDetailContent');
+    
+    // DEBUG: Gelen user objesini kontrol et
+    console.log('🔍 Gelen User Objesi:', user);
+    console.log('📝 Name (raw):', user.name);
+    console.log('📝 Name (type):', typeof user.name);
+    console.log('📝 Name (charCodes):', user.name ? Array.from(user.name).map(c => c.charCodeAt(0)) : 'null');
+    console.log('📍 Location (raw):', user.location);
     
     // Loading göster
     content.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;"><p style="font-size: 48px; margin: 0;">⏳</p><p>Yükleniyor...</p></div>';
@@ -593,12 +608,40 @@ function showUserDetails(user) {
     document.body.style.overflow = 'hidden';
     
     // Kullanıcı ilanlarını AJAX ile getir
-    fetch(ajaxurl + '?action=get_user_listings&user_id=' + user.user_id)
-        .then(res => res.json())
+    const ajaxUrl = ajaxurl + '?action=get_user_listings&user_id=' + user.user_id;
+    console.log('🔍 AJAX İstek URL:', ajaxUrl);
+    console.log('👤 User ID:', user.user_id);
+    
+    fetch(ajaxUrl)
+        .then(res => {
+            console.log('📡 Response Status:', res.status);
+            console.log('📡 Response OK:', res.ok);
+            console.log('📡 Response Headers:', res.headers);
+            
+            // Response text'i önce oku, debug için
+            return res.text().then(text => {
+                console.log('📄 Raw Response:', text.substring(0, 500)); // İlk 500 karakter
+                
+                if (!res.ok) {
+                    throw new Error('HTTP hata ' + res.status);
+                }
+                
+                // JSON parse etmeyi dene
+                try {
+                    const json = JSON.parse(text);
+                    console.log('✅ JSON Parse Başarılı:', json);
+                    return json;
+                } catch (e) {
+                    console.error('❌ JSON Parse Hatası:', e);
+                    console.error('❌ Gelen içerik JSON değil:', text);
+                    throw new Error('Yanıt JSON formatında değil: ' + text.substring(0, 100));
+                }
+            });
+        })
         .then(data => {
             let listingsHtml = '';
             
-            if (data.success && data.data.length > 0) {
+            if (data.success && data.data && data.data.length > 0) {
                 listingsHtml = `
                     <table class="ativ-user-listings-table">
                         <thead>
@@ -615,27 +658,39 @@ function showUserDetails(user) {
                 
                 data.data.forEach(listing => {
                     let statusClass = 'ativ-listing-status-pending';
-                    let statusText = listing.durum;
+                    let statusText = listing.status || 'Bilinmiyor';
                     
-                    if (listing.durum === 'approved') {
+                    if (listing.status === 'approved') {
                         statusClass = 'ativ-listing-status-approved';
                         statusText = 'Onaylandı';
-                    } else if (listing.durum === 'pending') {
+                    } else if (listing.status === 'pending') {
                         statusClass = 'ativ-listing-status-pending';
                         statusText = 'Beklemede';
-                    } else if (listing.durum === 'rejected') {
+                    } else if (listing.status === 'rejected') {
                         statusClass = 'ativ-listing-status-rejected';
                         statusText = 'Reddedildi';
                     }
                     
-                    const categoryName = listing.kategori;
+                    // Kategori çevirisi
+                    const categoryMap = {
+                        'transceiver': 'Telsiz',
+                        'antenna': 'Anten',
+                        'amplifier': 'Amplifikatör',
+                        'accessory': 'Aksesuar',
+                        'other': 'Diğer'
+                    };
+                    const categoryName = categoryMap[listing.category] || listing.category || '-';
+                    
                     const date = new Date(listing.created_at).toLocaleDateString('tr-TR');
+                    const title = listing.title || 'İsimsiz';
+                    const price = listing.price || '0';
+                    const currency = listing.currency || 'TRY';
                     
                     listingsHtml += `
                         <tr>
-                            <td><strong>${listing.baslik}</strong></td>
+                            <td><strong>${title}</strong></td>
                             <td>${categoryName}</td>
-                            <td><strong>${listing.fiyat} ${listing.para_birimi}</strong></td>
+                            <td><strong>${price} ${currency}</strong></td>
                             <td><span class="ativ-listing-status-badge ${statusClass}">${statusText}</span></td>
                             <td>${date}</td>
                         </tr>
@@ -647,66 +702,75 @@ function showUserDetails(user) {
                 listingsHtml = '<p style="text-align: center; color: #666; padding: 20px; background: #f6f7f7; border-radius: 8px;">Bu kullanıcının henüz ilanı yok.</p>';
             }
             
+            // HTML entity'leri decode et
+            const decodeHtml = (html) => {
+                const txt = document.createElement('textarea');
+                txt.innerHTML = html;
+                return txt.value;
+            };
+            
             content.innerHTML = `
                 <div class="ativ-user-detail-grid">
                     <div class="ativ-user-detail-field">
                         <label>Çağrı İşareti</label>
-                        <input type="text" value="${user.callsign}" readonly>
+                        <input type="text" value="${decodeHtml(user.callsign || '')}" readonly>
                     </div>
                     <div class="ativ-user-detail-field">
                         <label>Ad Soyad</label>
-                        <input type="text" value="${user.name}" readonly>
+                        <input type="text" value="${decodeHtml(user.name || '')}" readonly>
                     </div>
                     <div class="ativ-user-detail-field">
                         <label>E-posta</label>
-                        <input type="text" value="${user.email}" readonly>
+                        <input type="text" value="${decodeHtml(user.email || '')}" readonly>
                     </div>
                     <div class="ativ-user-detail-field">
                         <label>Telefon</label>
-                        <input type="text" value="${user.phone}" readonly>
+                        <input type="text" value="${decodeHtml(user.phone || '')}" readonly>
                     </div>
                     <div class="ativ-user-detail-field full-width">
                         <label>Konum</label>
-                        <input type="text" value="${user.location}" readonly>
+                        <input type="text" value="${decodeHtml(user.location || '')}" readonly>
                     </div>
                 </div>
                 
                 <div class="ativ-user-listings-section">
-                    <h3>📋 Kullanıcının İlanları (${user.listing_count})</h3>
+                    <h3>📋 Kullanıcının İlanları (${user.listing_count || 0})</h3>
                     ${listingsHtml}
                 </div>
             `;
         })
         .catch(error => {
-            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc3545;"><p>❌ İlanlar yüklenirken hata oluştu</p><p>' + error + '</p></div>';
+            console.error('İlan yükleme hatası:', error);
+            content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc3545;"><p>❌ İlanlar yüklenirken hata oluştu</p><p style="font-size: 14px; color: #666; margin-top: 10px;">Lütfen sayfayı yenileyin veya daha sonra tekrar deneyin.</p></div>';
         });
-}
+    };
 
-function closeUserModal() {
-    const modal = document.getElementById('userDetailModal');
-    modal.classList.remove('active');
-    document.body.style.overflow = 'auto';
-}
-
-// Modal dışına tıklandığında kapat
-document.addEventListener('DOMContentLoaded', function() {
-    const modal = document.getElementById('userDetailModal');
-    if (modal) {
-        modal.addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeUserModal();
-            }
-        });
-    }
-});
-
-// ESC tuşu ile kapat
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
+    window.closeUserModal = function() {
         const modal = document.getElementById('userDetailModal');
-        if (modal && modal.classList.contains('active')) {
-            closeUserModal();
+        modal.classList.remove('active');
+        document.body.style.overflow = 'auto';
+    };
+
+    // Modal dışına tıklandığında kapat
+    document.addEventListener('DOMContentLoaded', function() {
+        const modal = document.getElementById('userDetailModal');
+        if (modal) {
+            modal.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    window.closeUserModal();
+                }
+            });
         }
-    }
-});
+    });
+
+    // ESC tuşu ile kapat
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('userDetailModal');
+            if (modal && modal.classList.contains('active')) {
+                window.closeUserModal();
+            }
+        }
+    });
+})();
 </script>

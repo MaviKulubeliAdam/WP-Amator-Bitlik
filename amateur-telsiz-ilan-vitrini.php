@@ -676,7 +676,7 @@ class AmateurTelsizIlanVitrini {
         $table_name = $wpdb->prefix . 'amator_ilanlar';
 
         $listings = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, baslik, kategori, fiyat, para_birimi, durum, created_at 
+            "SELECT id, title, category, price, currency, status, created_at 
              FROM $table_name 
              WHERE user_id = %d 
              ORDER BY created_at DESC",
