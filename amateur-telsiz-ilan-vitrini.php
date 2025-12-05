@@ -39,6 +39,32 @@ register_activation_hook(__FILE__, function() {
 
 // AJAX ile kullanıcı kaydı ekleme
 add_action('wp_ajax_amator_bitlik_add_user', function() {
+    // Nonce kontrol - başarısızsa die etmez, devam etmeden önce kontrol et
+    $nonce_check = wp_verify_nonce($_POST['_wpnonce'] ?? '', 'ativ_profile_nonce');
+    
+    if (!$nonce_check) {
+        error_log('[NONCE DEBUG] Nonce başarısız - amator_bitlik_add_user');
+        error_log('[NONCE DEBUG] Alınan nonce: ' . ($_POST['_wpnonce'] ?? 'BOŞ'));
+        wp_send_json_error(['message' => 'Güvenlik doğrulaması başarısız. Sayfayı yenileyip tekrar deneyin.']);
+        wp_die();
+    }
+    
+    // Ban kontrolü
+    $user_id = intval($_POST['user_id'] ?? 0);
+    if ($user_id) {
+        global $wpdb;
+        $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        $is_banned = $wpdb->get_var($wpdb->prepare(
+            "SELECT is_banned FROM $users_table WHERE user_id = %d",
+            $user_id
+        ));
+        
+        if ($is_banned) {
+            wp_send_json_error(['message' => 'Yasaklı kullanıcılar profil bilgisini güncelleyemez.']);
+            wp_die();
+        }
+    }
+    
     $required = ['user_id', 'callsign', 'name', 'email', 'location', 'phone'];
     foreach ($required as $field) {
         if (empty($_POST[$field])) {
@@ -611,6 +637,19 @@ class AmateurTelsizIlanVitrini {
         check_ajax_referer('ativ_profile_nonce', '_wpnonce');
 
         $user_id = get_current_user_id();
+        
+        // Ban kontrolü
+        global $wpdb;
+        $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        $is_banned = $wpdb->get_var($wpdb->prepare(
+            "SELECT is_banned FROM $users_table WHERE user_id = %d",
+            $user_id
+        ));
+        
+        if ($is_banned) {
+            wp_send_json_error('Yasaklı kullanıcılar profil bilgisini güncelleyemez.');
+            wp_die();
+        }
 
         // Yalnızca güvenli alanları güncelle
         if (isset($_POST['name']) && !empty($_POST['name'])) {
@@ -621,8 +660,6 @@ class AmateurTelsizIlanVitrini {
         }
 
         // Özel tabloya kaydet/güncelle
-        global $wpdb;
-        $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
         
         // Telefonu birleştir (alan kodu + numara) - boşlukları temizle
         $country_code = sanitize_text_field($_POST['country_code'] ?? '+90');
@@ -974,18 +1011,26 @@ class AmateurTelsizIlanVitrini {
         $user_id = get_current_user_id();
         $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
         
+        error_log('[BAN CHECK DEBUG] User ID: ' . $user_id);
+        
         $user = $wpdb->get_row($wpdb->prepare(
             "SELECT is_banned, ban_reason, banned_at FROM $table_name WHERE user_id = %d",
             $user_id
         ));
+        
+        error_log('[BAN CHECK DEBUG] Query result: ' . print_r($user, true));
+        error_log('[BAN CHECK DEBUG] is_banned value: ' . ($user ? $user->is_banned : 'NULL'));
+        error_log('[BAN CHECK DEBUG] is_banned intval: ' . ($user ? intval($user->is_banned) : 'NULL'));
 
-        if ($user && $user->is_banned) {
+        if ($user && intval($user->is_banned) === 1) {
+            error_log('[BAN CHECK DEBUG] Kullanıcı banlandı!');
             wp_send_json_success(array(
                 'is_banned' => true,
                 'ban_reason' => $user->ban_reason,
                 'banned_at' => $user->banned_at
             ));
         } else {
+            error_log('[BAN CHECK DEBUG] Kullanıcı banlanmadı');
             wp_send_json_success(array('is_banned' => false));
         }
     }
@@ -1816,6 +1861,11 @@ class AmateurTelsizIlanVitrini {
         
         // Emoji değiştiyse kritik sayılır
         if (isset($update_data['emoji']) && $update_data['emoji'] != $old_listing['emoji']) {
+            $has_critical_change = true;
+        }
+        
+        // Video değiştiyse de kritik sayılır
+        if (isset($update_data['video']) && $update_data['video'] != $old_listing['video']) {
             $has_critical_change = true;
         }
         

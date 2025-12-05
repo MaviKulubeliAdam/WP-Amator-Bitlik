@@ -953,6 +953,25 @@ async function handleFormSubmit(e) {
  * İlan düzenleme fonksiyonu
  */
 window.editListing = async function(id) {
+  // Önce ban durumunu kontrol et (Console bypass koruması)
+  try {
+    const banCheckResponse = await fetch(ajaxurl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        action: 'check_user_ban',
+        nonce: atheneaNonce
+      })
+    });
+    const banStatus = await banCheckResponse.json();
+    if (banStatus.is_banned) {
+      showBannedUserModal(banStatus.ban_reason, banStatus.banned_at);
+      return;
+    }
+  } catch (e) {
+    console.error('Ban durumu kontrol edilemedi:', e);
+  }
+  
   // My-listings veya gallery'den gelmiş olabilir
   let listing = null;
   const idNum = Number(id);
@@ -980,6 +999,25 @@ window.editListing = async function(id) {
  * İlan silme onayı
  */
 window.confirmDeleteListing = async function(id) {
+  // Önce ban durumunu kontrol et (Console bypass koruması)
+  try {
+    const banCheckResponse = await fetch(ajaxurl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        action: 'check_user_ban',
+        nonce: atheneaNonce
+      })
+    });
+    const banStatus = await banCheckResponse.json();
+    if (banStatus.is_banned) {
+      showBannedUserModal(banStatus.ban_reason, banStatus.banned_at);
+      return;
+    }
+  } catch (e) {
+    console.error('Ban durumu kontrol edilemedi:', e);
+  }
+  
   // My-listings sayfasından gelen silme işlemi için direkt title bul
   let listing = null;
   
