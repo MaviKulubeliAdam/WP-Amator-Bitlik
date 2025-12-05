@@ -469,6 +469,128 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
         color: white;
         border-color: #667eea;
     }
+    
+    .ativ-user-ban-btn {
+        width: 100%;
+        padding: 10px;
+        background: #dc3545;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        margin-top: 10px;
+    }
+    
+    .ativ-user-ban-btn:hover {
+        background: #c82333;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(220,53,69,0.3);
+    }
+    
+    .ativ-user-unban-btn {
+        background: #28a745;
+    }
+    
+    .ativ-user-unban-btn:hover {
+        background: #218838;
+        box-shadow: 0 2px 8px rgba(40,167,69,0.3);
+    }
+    
+    .ativ-user-banned {
+        border-top-color: #dc3545 !important;
+        opacity: 0.85;
+    }
+    
+    .ativ-banned-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        background: #dc3545;
+        color: white;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 5px;
+    }
+    
+    .ativ-ban-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        z-index: 100001;
+        overflow-y: auto;
+    }
+    
+    .ativ-ban-modal.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .ativ-ban-modal-content {
+        background: white;
+        border-radius: 12px;
+        padding: 30px;
+        max-width: 500px;
+        width: 90%;
+        box-shadow: 0 5px 25px rgba(0,0,0,0.3);
+    }
+    
+    .ativ-ban-modal-content h3 {
+        margin-top: 0;
+        color: #333;
+    }
+    
+    .ativ-ban-modal-content textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        font-size: 14px;
+        min-height: 100px;
+        resize: vertical;
+    }
+    
+    .ativ-ban-modal-buttons {
+        display: flex;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    
+    .ativ-ban-modal-buttons button {
+        flex: 1;
+        padding: 10px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        transition: all 0.2s ease;
+    }
+    
+    .ativ-ban-confirm-btn {
+        background: #dc3545;
+        color: white;
+    }
+    
+    .ativ-ban-confirm-btn:hover {
+        background: #c82333;
+    }
+    
+    .ativ-ban-cancel-btn {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .ativ-ban-cancel-btn:hover {
+        background: #5a6268;
+    }
     </style>
     
     <div class="ativ-users-header">
@@ -501,14 +623,19 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
         <!-- Kullanıcı Kartları -->
         <div class="ativ-users-grid">
             <?php foreach ($users as $user): ?>
-                <div class="ativ-user-card">
+                <div class="ativ-user-card <?php echo ($user->is_banned ?? 0) ? 'ativ-user-banned' : ''; ?>">
                     <div class="ativ-user-card-content">
                         <div class="ativ-user-header">
                             <div class="ativ-user-avatar">
                                 <?php echo strtoupper(substr($user->callsign, 0, 2)); ?>
                             </div>
                             <div class="ativ-user-info">
-                                <div class="ativ-user-name"><?php echo esc_html($user->name); ?></div>
+                                <div class="ativ-user-name">
+                                    <?php echo esc_html($user->name); ?>
+                                    <?php if ($user->is_banned ?? 0): ?>
+                                        <span class="ativ-banned-badge">🚫 YASAKLI</span>
+                                    <?php endif; ?>
+                                </div>
                                 <div class="ativ-user-callsign">📻 <?php echo esc_html($user->callsign); ?></div>
                             </div>
                         </div>
@@ -545,6 +672,20 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
                             onclick='showUserDetails(<?php echo wp_json_encode($user, JSON_UNESCAPED_UNICODE); ?>)'>
                             🔍 Detay Görüntüle
                         </button>
+                        
+                        <?php if ($user->is_banned ?? 0): ?>
+                            <button 
+                                class="ativ-user-ban-btn ativ-user-unban-btn"
+                                onclick="unbanUser(<?php echo $user->user_id; ?>, '<?php echo esc_js($user->name); ?>')">
+                                ✅ Yasağı Kaldır
+                            </button>
+                        <?php else: ?>
+                            <button 
+                                class="ativ-user-ban-btn"
+                                onclick="showBanModal(<?php echo $user->user_id; ?>, '<?php echo esc_js($user->name); ?>')">
+                                🚫 Kullanıcıyı Yasakla
+                            </button>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endforeach; ?>
@@ -576,6 +717,22 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
         </div>
         <div class="ativ-user-modal-body">
             <div id="userDetailContent"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Yasaklama Modal -->
+<div id="banModal" class="ativ-ban-modal">
+    <div class="ativ-ban-modal-content">
+        <h3>🚫 Kullanıcıyı Yasakla</h3>
+        <p id="banUserName" style="color: #666; margin: 10px 0;"></p>
+        <div style="margin: 20px 0;">
+            <label for="banReason" style="display: block; font-weight: 600; margin-bottom: 5px;">Yasaklama Nedeni:</label>
+            <textarea id="banReason" placeholder="Yasaklama nedeninizi açıklayın..." required></textarea>
+        </div>
+        <div class="ativ-ban-modal-buttons">
+            <button class="ativ-ban-cancel-btn" onclick="closeBanModal()">İptal</button>
+            <button class="ativ-ban-confirm-btn" onclick="confirmBan()">Yasakla</button>
         </div>
     </div>
 </div>
@@ -770,7 +927,109 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
             if (modal && modal.classList.contains('active')) {
                 window.closeUserModal();
             }
+            const banModal = document.getElementById('banModal');
+            if (banModal && banModal.classList.contains('active')) {
+                window.closeBanModal();
+            }
         }
     });
+    
+    // Yasaklama Modal
+    let currentBanUserId = null;
+    
+    window.showBanModal = function(userId, userName) {
+        currentBanUserId = userId;
+        document.getElementById('banUserName').textContent = userName + ' adlı kullanıcıyı yasaklamak üzeresiniz.';
+        document.getElementById('banReason').value = '';
+        document.getElementById('banModal').classList.add('active');
+    };
+    
+    window.closeBanModal = function() {
+        document.getElementById('banModal').classList.remove('active');
+        currentBanUserId = null;
+    };
+    
+    window.confirmBan = function() {
+        const reason = document.getElementById('banReason').value.trim();
+        
+        console.log('[DEBUG] confirmBan başlatıldı');
+        console.log('[DEBUG] currentBanUserId:', currentBanUserId);
+        console.log('[DEBUG] Ban reason:', reason);
+        
+        if (!reason) {
+            alert('Lütfen yasaklama nedenini giriniz.');
+            return;
+        }
+        
+        if (!confirm('Bu kullanıcıyı yasaklamak istediğinizden emin misiniz?')) {
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('action', 'ban_user');
+        formData.append('user_id', currentBanUserId);
+        formData.append('ban_reason', reason);
+        
+        console.log('[DEBUG] AJAX gönderiliyor...');
+        console.log('[DEBUG] ajaxurl:', ajaxurl);
+        
+        fetch(ajaxurl, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => {
+            console.log('[DEBUG] Response status:', res.status);
+            console.log('[DEBUG] Response headers:', res.headers);
+            return res.text();
+        })
+        .then(text => {
+            console.log('[DEBUG] Response text:', text);
+            try {
+                const data = JSON.parse(text);
+                console.log('[DEBUG] Parsed JSON:', data);
+                if (data.success) {
+                    alert('Kullanıcı başarıyla yasaklandı.');
+                    location.reload();
+                } else {
+                    alert('Hata: ' + (data.data || 'Bilinmeyen hata'));
+                }
+            } catch (e) {
+                console.error('[DEBUG] JSON parse hatası:', e);
+                alert('Sunucu hatası: ' + text.substring(0, 200));
+            }
+        })
+        .catch(error => {
+            console.error('[DEBUG] Fetch hatası:', error);
+            alert('Bir hata oluştu. Lütfen tekrar deneyin.');
+        });
+    };
+    
+    window.unbanUser = function(userId, userName) {
+        if (!confirm(userName + ' adlı kullanıcının yasağını kaldırmak istediğinizden emin misiniz?')) {
+            return;
+        }
+        
+        const formData = new FormData();
+        formData.append('action', 'unban_user');
+        formData.append('user_id', userId);
+        
+        fetch(ajaxurl, {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('Yasak başarıyla kaldırıldı.');
+                location.reload();
+            } else {
+                alert('Hata: ' + (data.data || 'Bilinmeyen hata'));
+            }
+        })
+        .catch(error => {
+            console.error('Unban hatası:', error);
+            alert('Bir hata oluştu. Lütfen tekrar deneyin.');
+        });
+    };
 })();
 </script>

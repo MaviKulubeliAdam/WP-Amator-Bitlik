@@ -117,7 +117,7 @@
             }
           ?>
           <div class="listing-row-wrapper" style="display: flex; flex-direction: column;">
-            <div class="listing-row" data-listing-id="<?php echo esc_attr($listing['id']); ?>" style="position: relative; border: 2px solid <?php echo ($listing['status'] === 'rejected' ? '#dc3545' : ($listing['status'] === 'pending' ? '#ffc107' : '#28a745')); ?>; border-radius: 4px; display: flex; flex-wrap: wrap; cursor: pointer;" onclick="toggleListingDetails(this.querySelector('.listing-row-title'))">
+            <div class="listing-row" data-listing-id="<?php echo esc_attr($listing['id']); ?>" style="position: relative; border: 2px solid <?php echo ($listing['status'] === 'rejected' ? '#dc3545' : ($listing['status'] === 'pending' ? '#ffc107' : ($listing['status'] === 'suspended' ? '#6c757d' : '#28a745'))); ?>; border-radius: 4px; display: flex; flex-wrap: wrap; cursor: pointer;" onclick="toggleListingDetails(this.querySelector('.listing-row-title'))">
               <div class="listing-row-image">
                 <?php if ($image_url): ?>
                   <img src="<?php echo esc_url($image_url); ?>" alt="<?php echo esc_attr($listing['title']); ?>">
@@ -132,12 +132,14 @@
                     <span style="background: #dc3545; color: white; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">❌ Reddedildi</span>
                   <?php elseif ($listing['status'] === 'pending'): ?>
                     <span style="background: #ffc107; color: #333; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">⏳ Beklemede</span>
+                  <?php elseif ($listing['status'] === 'suspended'): ?>
+                    <span style="background: #6c757d; color: white; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">🚫 Askıya Alındı</span>
                   <?php else: ?>
                     <span style="background: #28a745; color: white; font-size: 11px; padding: 4px 8px; border-radius: 12px; white-space: nowrap; font-weight: bold;">✅ Onaylı</span>
                   <?php endif; ?>
                 </div>
                 
-                <!-- Red nedeni veya pending uyarısı -->
+                <!-- Red nedeni veya pending uyarısı veya suspended uyarısı -->
                 <?php if ($listing['status'] === 'rejected'): ?>
                 <div style="background: #ffebee; border-left: 3px solid #dc3545; padding: 10px; margin-bottom: 8px; border-radius: 2px; word-wrap: break-word; overflow-wrap: break-word;">
                   <div style="color: #721c24; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word; white-space: normal;">
@@ -155,6 +157,12 @@
                     ⏳ <strong>Yönetici incelemesinde...</strong> İlanınızı düzenleyebilirsiniz.
                   </div>
                 </div>
+                <?php elseif ($listing['status'] === 'suspended'): ?>
+                <div style="background: #f8f9fa; border-left: 3px solid #6c757d; padding: 8px 10px; margin-bottom: 8px; border-radius: 2px; word-wrap: break-word; overflow-wrap: break-word;">
+                  <div style="color: #495057; font-size: 12px;">
+                    🚫 <strong>İlanınız askıya alındı.</strong> Hesabınız yasaklandığı için bu ilan görüntülenmiyor. Yasak kaldırıldığında otomatik olarak eski durumuna dönecektir.
+                  </div>
+                </div>
                 <?php endif; ?>
                 
                 <p class="listing-row-category"><?php echo esc_html(getCategoryName($listing['category'])); ?> • <?php echo esc_html($listing['condition']); ?></p>
@@ -167,10 +175,16 @@
               <div class="listing-row-actions">
                 <?php if ($listing['status'] === 'rejected' || $listing['status'] === 'pending'): ?>
                   <button class="action-btn edit-btn" onclick="event.stopPropagation(); window.editMyListing(<?php echo intval($listing['id']); ?>)" title="Düzenle">✏️ Düzenle</button>
+                <?php elseif ($listing['status'] === 'suspended'): ?>
+                  <button class="action-btn edit-btn" style="opacity: 0.5; cursor: not-allowed;" disabled title="Askıda iken düzenlenemez">✏️ Düzenle</button>
                 <?php else: ?>
                   <button class="action-btn edit-btn" onclick="event.stopPropagation(); window.editListing(<?php echo intval($listing['id']); ?>)" title="Düzenle">✏️ Düzenle</button>
                 <?php endif; ?>
-                <button class="action-btn delete-btn" onclick="event.stopPropagation(); window.confirmDeleteListing(<?php echo intval($listing['id']); ?>)" title="Sil">🗑️ Sil</button>
+                <?php if ($listing['status'] === 'suspended'): ?>
+                  <button class="action-btn delete-btn" style="opacity: 0.5; cursor: not-allowed;" disabled title="Askıda iken silinemez">🗑️ Sil</button>
+                <?php else: ?>
+                  <button class="action-btn delete-btn" onclick="event.stopPropagation(); window.confirmDeleteListing(<?php echo intval($listing['id']); ?>)" title="Sil">🗑️ Sil</button>
+                <?php endif; ?>
               </div>
             </div>
             <div class="listing-row-details-expanded">

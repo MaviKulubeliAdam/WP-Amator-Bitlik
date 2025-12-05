@@ -36,12 +36,62 @@ window.pageType = 'profile';
 window.ajaxurl = '<?php echo admin_url('admin-ajax.php'); ?>';
 window.bitlikUserId = <?php echo intval($user_id); ?>;
 document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('profileCallsign').value = '<?php echo esc_js($current_user->user_login); ?>';
-    document.getElementById('profileName').value = '<?php echo esc_js($current_user->display_name); ?>';
-    document.getElementById('profileEmail').value = '<?php echo esc_js($current_user->user_email); ?>';
+    // Profil bilgilerini AJAX ile yükle
+    const formData = new FormData();
+    formData.append('action', 'ativ_load_profile_info');
+    formData.append('_wpnonce', '<?php echo wp_create_nonce('ativ_profile_nonce'); ?>');
+    
+    fetch(ajaxurl, {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success && data.data) {
+            const profile = data.data;
+            
+            // Form alanlarını doldur
+            document.getElementById('profileCallsign').value = profile.callsign || '';
+            document.getElementById('profileName').value = profile.name || '';
+            document.getElementById('profileEmail').value = profile.email || '';
+            document.getElementById('profileLocation').value = profile.location || '';
+            
+            // Telefon numarasını parse et ve alanlara yerleştir
+            if (profile.phone) {
+                document.getElementById('profilePhone').value = profile.phone;
+            }
+            
+            // Alan kodunu ayarla
+            if (profile.country_code) {
+                const countryCodeSelect = document.getElementById('profileCountryCode');
+                if (countryCodeSelect) {
+                    // Select yüklenene kadar bekle
+                    const setCountryCode = () => {
+                        const option = Array.from(countryCodeSelect.options).find(opt => opt.value === profile.country_code);
+                        if (option) {
+                            countryCodeSelect.value = profile.country_code;
+                        }
+                    };
+                    
+                    // Eğer select dolu ise hemen ayarla, değilse bekle
+                    if (countryCodeSelect.options.length > 0) {
+                        setCountryCode();
+                    } else {
+                        setTimeout(setCountryCode, 200);
+                    }
+                }
+            }
+        }
+    })
+    .catch(err => {
+        console.error('Profil bilgileri yüklenemedi:', err);
+        // Fallback: WordPress'den gelen bilgileri kullan
+        document.getElementById('profileCallsign').value = '<?php echo esc_js($current_user->user_login); ?>';
+        document.getElementById('profileName').value = '<?php echo esc_js($current_user->display_name); ?>';
+        document.getElementById('profileEmail').value = '<?php echo esc_js($current_user->user_email); ?>';
+    });
 });
 </script>
-<script src="<?php echo plugins_url('js/modal.js', dirname(__FILE__)); ?>"></script>
 <script src="<?php echo plugins_url('js/profile.js', dirname(__FILE__)); ?>"></script>
 
 <div id="bitlik-profile-container" class="bitlik-profile-wrapper">
@@ -877,9 +927,17 @@ document.addEventListener('DOMContentLoaded', function() {
         form.addEventListener('submit', function(e) {
             e.preventDefault();
 
-            const formData = new FormData(form);
+            const formData = new FormData();
             formData.append('action', 'ativ_save_profile_info');
             formData.append('_wpnonce', '<?php echo wp_create_nonce('ativ_profile_nonce'); ?>');
+            
+            // Form alanlarını manuel olarak ekle
+            formData.append('name', document.getElementById('profileName').value);
+            formData.append('callsign', document.getElementById('profileCallsign').value);
+            formData.append('email', document.getElementById('profileEmail').value);
+            formData.append('location', document.getElementById('profileLocation').value);
+            formData.append('country_code', document.getElementById('profileCountryCode').value);
+            formData.append('phone', document.getElementById('profilePhone').value);
 
             fetch(ajaxurl, {
                 method: 'POST',

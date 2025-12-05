@@ -458,22 +458,44 @@ function openAddListingModal() {
     return;
   }
   
-  editingListing = null;
-  document.getElementById('addListingModal').style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-  document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
-  document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
-  updatePreview();
-  
-  // Ülke kodlarını doldur (varsayılan Türkiye)
-  populateCountryCodes('+90');
-  
-  // Şehir listesini yükle
-  loadCities();
-  
-  // Kategori ve durum dropdown'larını ayarla
-  setupCategoryDropdown();
-  setupConditionDropdown();
+  // Kullanıcının yasaklı olup olmadığını kontrol et
+  checkUserBanStatus().then(banData => {
+    if (banData.is_banned) {
+      showBannedUserModal(banData.ban_reason, banData.banned_at);
+      return;
+    }
+    
+    // Yasaklı değilse modalı aç
+    editingListing = null;
+    document.getElementById('addListingModal').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
+    document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
+    updatePreview();
+    
+    // Ülke kodlarını doldur (varsayılan Türkiye)
+    populateCountryCodes('+90');
+    
+    // Şehir listesini yükle
+    loadCities();
+    
+    // Kategori ve durum dropdown'larını ayarla
+    setupCategoryDropdown();
+    setupConditionDropdown();
+  }).catch(error => {
+    console.error('Ban kontrolü hatası:', error);
+    // Hata olsa bile devam et
+    editingListing = null;
+    document.getElementById('addListingModal').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
+    document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
+    updatePreview();
+    populateCountryCodes('+90');
+    loadCities();
+    setupCategoryDropdown();
+    setupConditionDropdown();
+  });
 }
 
 /**
@@ -2703,4 +2725,109 @@ function updateVideoUploadProgress(percent) {
   }
 }
 
+/**
+ * Kullanıcının yasaklı olup olmadığını kontrol et
+ */
+function checkUserBanStatus() {
+  console.log('[DEBUG] checkUserBanStatus çağrıldı');
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('action', 'check_user_ban');
+    
+    console.log('[DEBUG] Ban kontrolü AJAX başlatılıyor...');
+    
+    fetch(ativ_ajax.url, {
+      method: 'POST',
+      body: formData
+    })
+    .then(res => {
+      console.log('[DEBUG] Ban kontrolü response status:', res.status);
+      return res.json();
+    })
+    .then(data => {
+      console.log('[DEBUG] Ban kontrolü response data:', data);
+      if (data.success) {
+        console.log('[DEBUG] Ban kontrolü başarılı, data:', data.data);
+        resolve(data.data);
+      } else {
+        console.error('[DEBUG] Ban kontrolü başarısız:', data.data);
+        reject(new Error(data.data || 'Ban kontrolü başarısız'));
+      }
+    })
+    .catch(error => {
+      console.error('[DEBUG] Ban kontrolü fetch hatası:', error);
+      reject(error);
+    });
+  });
+}
+
+/**
+ * Yasaklı kullanıcı modalını göster
+ */
+function showBannedUserModal(banReason, bannedAt) {
+  console.log('[DEBUG] showBannedUserModal çağrıldı');
+  console.log('[DEBUG] banReason:', banReason);
+  console.log('[DEBUG] bannedAt:', bannedAt);
+  
+  const date = bannedAt ? new Date(bannedAt).toLocaleDateString('tr-TR') : 'Bilinmiyor';
+  
+  // escapeHtml fonksiyonu tanımlı mı kontrol et
+  const safeEscape = typeof escapeHtml === 'function' ? escapeHtml : (text => {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  });
+  
+  const modal = document.createElement('div');
+  modal.className = 'login-required-modal-overlay';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    padding: 20px;
+  `;
+  
+  modal.innerHTML = `
+    <div class="login-required-modal-content" style="
+      background: white;
+      border-radius: 12px;
+      padding: 30px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      text-align: center;
+      animation: modalFadeIn 0.3s ease;
+    ">
+      <div class="login-required-icon" style="font-size: 64px; margin-bottom: 20px;">🚫</div>
+      <h2 style="color: #dc3545; margin-bottom: 10px; font-size: 24px;">Hesabınız Yasaklanmış</h2>
+      <p style="color: #666; margin-bottom: 20px; font-size: 14px;">Yasaklanma Tarihi: ${date}</p>
+      <div style="background: #f8d7da; padding: 15px; border-radius: 8px; border-left: 4px solid #dc3545; margin-bottom: 20px; text-align: left;">
+        <strong style="color: #721c24; display: block; margin-bottom: 5px;">Yasaklanma Nedeni:</strong>
+        <p style="color: #721c24; margin: 0; white-space: pre-wrap;">${safeEscape(banReason || 'Belirtilmemiş')}</p>
+      </div>
+      <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+        İlan ekleme yetkiniz kaldırılmıştır. Daha fazla bilgi için site yöneticisi ile iletişime geçiniz.
+      </p>
+      <button 
+        onclick="this.closest('.login-required-modal-overlay').remove(); document.body.style.overflow = 'auto';" 
+        style="width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 16px; transition: background 0.3s;">
+        Anladım
+      </button>
+    </div>
+  `;
+  
+  console.log('[DEBUG] Modal DOM\'a ekleniyor...');
+  document.body.appendChild(modal);
+  document.body.style.overflow = 'hidden';
+  console.log('[DEBUG] Modal gösterildi');
+  console.log('[DEBUG] Modal element:', modal);
+  console.log('[DEBUG] Modal computed style:', window.getComputedStyle(modal).display);
+}
 

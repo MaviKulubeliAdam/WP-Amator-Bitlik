@@ -19,11 +19,22 @@ register_activation_hook(__FILE__, function() {
         email VARCHAR(100) NOT NULL,
         location VARCHAR(100) NOT NULL,
         phone VARCHAR(20) NOT NULL,
+        is_banned TINYINT(1) DEFAULT 0,
+        ban_reason TEXT,
+        banned_at DATETIME,
         PRIMARY KEY (id),
         KEY user_id (user_id)
     ) $charset_collate;";
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
+    
+    // Mevcut tabloya kolonları ekle (güncelleme için)
+    $row = $wpdb->get_results("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$table_name' AND COLUMN_NAME = 'is_banned'");
+    if(empty($row)){
+        $wpdb->query("ALTER TABLE $table_name ADD is_banned TINYINT(1) DEFAULT 0");
+        $wpdb->query("ALTER TABLE $table_name ADD ban_reason TEXT");
+        $wpdb->query("ALTER TABLE $table_name ADD banned_at DATETIME");
+    }
 });
 
 // AJAX ile kullanıcı kaydı ekleme
@@ -172,6 +183,9 @@ class AmateurTelsizIlanVitrini {
         add_action('wp_ajax_ativ_load_search_alerts', array($this, 'ajax_load_search_alerts'));
         add_action('wp_ajax_ativ_save_search_alert', array($this, 'ajax_save_search_alert'));
         add_action('wp_ajax_ativ_delete_search_alert', array($this, 'ajax_delete_search_alert'));
+        add_action('wp_ajax_check_user_ban', array($this, 'ajax_check_user_ban'));
+        add_action('wp_ajax_ban_user', array($this, 'ajax_ban_user'));
+        add_action('wp_ajax_unban_user', array($this, 'ajax_unban_user'));
         add_action('wp_ajax_get_user_listings', array($this, 'ajax_get_user_listings'));
         
         // Custom cron interval'ı tanımla (6 saat)
@@ -311,7 +325,8 @@ class AmateurTelsizIlanVitrini {
         location varchar(100) NOT NULL,
         seller_email varchar(100) NOT NULL,
         seller_phone varchar(20) NOT NULL,
-        status enum('pending', 'approved', 'rejected') DEFAULT 'pending',
+        status enum('pending', 'approved', 'rejected', 'suspended') DEFAULT 'pending',
+        status_before_suspend varchar(20) DEFAULT NULL,
         rejection_reason longtext,
         created_at datetime DEFAULT CURRENT_TIMESTAMP,
         updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -321,6 +336,15 @@ class AmateurTelsizIlanVitrini {
     ) $charset_collate;";
     
     dbDelta($sql);
+    
+    // Mevcut tabloya 'suspended' enum değerini ve status_before_suspend kolonunu ekle (güncelleme için)
+    $wpdb->query("ALTER TABLE $table_name MODIFY COLUMN status enum('pending', 'approved', 'rejected', 'suspended') DEFAULT 'pending'");
+    
+    // status_before_suspend kolonu yoksa ekle
+    $column_exists = $wpdb->get_results("SHOW COLUMNS FROM $table_name LIKE 'status_before_suspend'");
+    if (empty($column_exists)) {
+        $wpdb->query("ALTER TABLE $table_name ADD COLUMN status_before_suspend varchar(20) DEFAULT NULL AFTER status");
+    }
     
     if (!empty($wpdb->last_error)) {
         error_log('ATIV İlanlar tablosu oluşturma hatası: ' . $wpdb->last_error);
@@ -502,21 +526,78 @@ class AmateurTelsizIlanVitrini {
         $user_id = get_current_user_id();
         $current_user = get_user_by('id', $user_id);
 
-        // Çağrı işareti: meta varsa onu, yoksa username'i kullan
-        $callsign_meta = get_user_meta($user_id, 'ativ_profile_callsign', true);
-        $callsign = $callsign_meta;
-        if (empty($callsign)) {
-            $callsign = strtoupper(str_replace(' ', '', $current_user->user_login));
+        global $wpdb;
+        $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        
+        // Veritabanından kullanıcı bilgilerini çek
+        $db_user = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $users_table WHERE user_id = %d",
+            $user_id
+        ));
+
+        // Çağrı işareti: önce DB'den, yoksa username'den
+        $callsign = '';
+        if ($db_user && !empty($db_user->callsign)) {
+            $callsign = $db_user->callsign;
         } else {
-            $callsign = strtoupper(str_replace(' ', '', $callsign));
+            $callsign = $current_user->user_login;
+        }
+        $callsign = strtoupper(str_replace(' ', '', $callsign));
+
+        // Telefon numarasını parse et (alan kodu ve numara olarak ayır)
+        $phone = '';
+        $country_code = '+90'; // Varsayılan
+        
+        if ($db_user && !empty($db_user->phone)) {
+            $phone_full = $db_user->phone;
+        } else {
+            $phone_full = '';
+        }
+        
+        // Telefonu parse et: +90 548 222 99 89 formatından alan kodu ve numarayı ayır
+        if (!empty($phone_full)) {
+            // Tüm boşlukları ve tire işaretlerini temizle
+            $phone_clean = preg_replace('/[\s\-]/', '', $phone_full);
+            
+            // + ile başlıyorsa alan kodunu ayır
+            if (strpos($phone_clean, '+') === 0) {
+                // Türkiye için +90
+                if (strpos($phone_clean, '+90') === 0) {
+                    $country_code = '+90';
+                    $phone = substr($phone_clean, 3);
+                }
+                // ABD/Kanada için +1
+                else if (strpos($phone_clean, '+1') === 0) {
+                    $country_code = '+1';
+                    $phone = substr($phone_clean, 2);
+                }
+                // Diğer kodlar için ilk 2-4 karakteri kontrol et
+                else {
+                    preg_match('/^\+(\d{1,4})(.*)$/', $phone_clean, $matches);
+                    if (count($matches) >= 3) {
+                        $country_code = '+' . $matches[1];
+                        $phone = $matches[2];
+                    }
+                }
+            } else {
+                // + yoksa tüm numara phone olarak kabul et
+                $phone = $phone_clean;
+            }
         }
 
+        // WordPress kullanıcı ad ve soyadını birleştir
+        $wp_full_name = trim($current_user->first_name . ' ' . $current_user->last_name);
+        if (empty($wp_full_name)) {
+            $wp_full_name = $current_user->display_name; // Ad soyad yoksa display_name kullan
+        }
+        
         $profile_data = array(
-            'name' => $current_user->display_name,
-            'email' => $current_user->user_email,
+            'name' => $db_user && !empty($db_user->name) ? $db_user->name : $wp_full_name,
+            'email' => $db_user && !empty($db_user->email) ? $db_user->email : $current_user->user_email,
             'callsign' => $callsign,
-            'phone' => get_user_meta($user_id, 'ativ_profile_phone', true),
-            'location' => get_user_meta($user_id, 'ativ_profile_location', true)
+            'phone' => $phone,
+            'country_code' => $country_code,
+            'location' => $db_user && !empty($db_user->location) ? $db_user->location : ''
         );
 
         wp_send_json_success($profile_data);
@@ -539,10 +620,37 @@ class AmateurTelsizIlanVitrini {
             ));
         }
 
-        // User meta'yı güncelle
-        update_user_meta($user_id, 'ativ_profile_callsign', sanitize_text_field($_POST['callsign'] ?? ''));
-        update_user_meta($user_id, 'ativ_profile_phone', sanitize_text_field($_POST['phone'] ?? ''));
-        update_user_meta($user_id, 'ativ_profile_location', sanitize_text_field($_POST['location'] ?? ''));
+        // Özel tabloya kaydet/güncelle
+        global $wpdb;
+        $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        
+        // Telefonu birleştir (alan kodu + numara) - boşlukları temizle
+        $country_code = sanitize_text_field($_POST['country_code'] ?? '+90');
+        $phone_number = preg_replace('/[\s\-]/', '', sanitize_text_field($_POST['phone'] ?? ''));
+        $phone_full = $country_code . $phone_number;
+        
+        $user_data = array(
+            'callsign' => strtoupper(str_replace(' ', '', sanitize_text_field($_POST['callsign'] ?? ''))),
+            'name' => sanitize_text_field($_POST['name'] ?? ''),
+            'email' => get_userdata($user_id)->user_email,
+            'location' => sanitize_text_field($_POST['location'] ?? ''),
+            'phone' => $phone_full
+        );
+        
+        // Kullanıcı kaydı var mı kontrol et
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $users_table WHERE user_id = %d",
+            $user_id
+        ));
+        
+        if ($existing) {
+            // Güncelle
+            $wpdb->update($users_table, $user_data, array('user_id' => $user_id));
+        } else {
+            // Yeni kayıt
+            $user_data['user_id'] = $user_id;
+            $wpdb->insert($users_table, $user_data);
+        }
 
         wp_send_json_success('Profil güncellendi');
     }
@@ -555,13 +663,25 @@ class AmateurTelsizIlanVitrini {
         check_ajax_referer('ativ_profile_nonce', '_wpnonce');
 
         $user_id = get_current_user_id();
+        
+        global $wpdb;
+        $alerts_table = $wpdb->prefix . 'amator_email_alerts';
+        
+        // Tablo yoksa oluştur
+        $this->create_email_alerts_table();
+        
+        // Kullanıcının bildirim ayarlarını çek
+        $alerts = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $alerts_table WHERE user_id = %d",
+            $user_id
+        ));
 
         $alerts_data = array(
-            'alert_new_requests' => (bool)get_user_meta($user_id, 'ativ_alert_new_requests', true) ?: true,
-            'alert_inquiries' => (bool)get_user_meta($user_id, 'ativ_alert_inquiries', true) ?: true,
-            'alert_listing_approval' => (bool)get_user_meta($user_id, 'ativ_alert_listing_approval', true) ?: true,
-            'alert_system_notifications' => (bool)get_user_meta($user_id, 'ativ_alert_system_notifications', true) ?: true,
-            'email_frequency' => get_user_meta($user_id, 'ativ_email_frequency', true) ?: 'immediate'
+            'alert_new_requests' => $alerts ? (bool)$alerts->alert_new_requests : true,
+            'alert_inquiries' => $alerts ? (bool)$alerts->alert_inquiries : true,
+            'alert_listing_approval' => $alerts ? (bool)$alerts->alert_listing_approval : true,
+            'alert_system_notifications' => $alerts ? (bool)$alerts->alert_system_notifications : true,
+            'email_frequency' => $alerts ? $alerts->email_frequency : 'immediate'
         );
 
         wp_send_json_success($alerts_data);
@@ -575,12 +695,32 @@ class AmateurTelsizIlanVitrini {
         check_ajax_referer('ativ_profile_nonce', '_wpnonce');
 
         $user_id = get_current_user_id();
-
-        update_user_meta($user_id, 'ativ_alert_new_requests', isset($_POST['alert_new_requests']) ? 1 : 0);
-        update_user_meta($user_id, 'ativ_alert_inquiries', isset($_POST['alert_inquiries']) ? 1 : 0);
-        update_user_meta($user_id, 'ativ_alert_listing_approval', isset($_POST['alert_listing_approval']) ? 1 : 0);
-        update_user_meta($user_id, 'ativ_alert_system_notifications', isset($_POST['alert_system_notifications']) ? 1 : 0);
-        update_user_meta($user_id, 'ativ_email_frequency', sanitize_text_field($_POST['email_frequency'] ?? 'immediate'));
+        
+        global $wpdb;
+        $alerts_table = $wpdb->prefix . 'amator_email_alerts';
+        
+        $alert_data = array(
+            'alert_new_requests' => isset($_POST['alert_new_requests']) ? 1 : 0,
+            'alert_inquiries' => isset($_POST['alert_inquiries']) ? 1 : 0,
+            'alert_listing_approval' => isset($_POST['alert_listing_approval']) ? 1 : 0,
+            'alert_system_notifications' => isset($_POST['alert_system_notifications']) ? 1 : 0,
+            'email_frequency' => sanitize_text_field($_POST['email_frequency'] ?? 'immediate')
+        );
+        
+        // Kullanıcı kaydı var mı kontrol et
+        $existing = $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM $alerts_table WHERE user_id = %d",
+            $user_id
+        ));
+        
+        if ($existing) {
+            // Güncelle
+            $wpdb->update($alerts_table, $alert_data, array('user_id' => $user_id));
+        } else {
+            // Yeni kayıt
+            $alert_data['user_id'] = $user_id;
+            $wpdb->insert($alerts_table, $alert_data);
+        }
 
         wp_send_json_success('Ayarlar güncellendi');
     }
@@ -667,7 +807,10 @@ class AmateurTelsizIlanVitrini {
      * Kullanıcının ilanlarını getir (Admin için)
      */
     public function ajax_get_user_listings() {
+        error_log('get_user_listings AJAX başlatıldı');
+        
         if (!current_user_can('manage_options')) {
+            error_log('get_user_listings: Yetki yok');
             wp_send_json_error('Yetkiniz yok');
         }
 
@@ -684,6 +827,167 @@ class AmateurTelsizIlanVitrini {
         ));
 
         wp_send_json_success($listings);
+    }
+
+    /**
+     * Kullanıcıyı yasakla
+     */
+    public function ajax_ban_user() {
+        error_log('Ban AJAX başlatıldı');
+        error_log('POST data: ' . print_r($_POST, true));
+        
+        if (!current_user_can('manage_options')) {
+            error_log('Ban: Yetki yok');
+            wp_send_json_error('Yetkiniz yok');
+        }
+
+        global $wpdb;
+        $user_id = intval($_POST['user_id'] ?? 0);
+        $ban_reason = sanitize_textarea_field($_POST['ban_reason'] ?? '');
+        
+        error_log('Ban user_id: ' . $user_id);
+        error_log('Ban reason: ' . $ban_reason);
+        
+        if (empty($ban_reason)) {
+            error_log('Ban: Neden boş');
+            wp_send_json_error('Yasaklama nedeni belirtilmeli');
+        }
+
+        $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        
+        $result = $wpdb->update(
+            $table_name,
+            array(
+                'is_banned' => 1,
+                'ban_reason' => $ban_reason,
+                'banned_at' => current_time('mysql')
+            ),
+            array('user_id' => $user_id),
+            array('%d', '%s', '%s'),
+            array('%d')
+        );
+        
+        error_log('Ban result: ' . ($result !== false ? 'Başarılı' : 'Hatalı'));
+        error_log('WPDB last error: ' . $wpdb->last_error);
+
+        if ($result !== false) {
+            // Kullanıcının tüm ilanlarını askıya al ve eski durumlarını sakla
+            $listings_table = $wpdb->prefix . 'amator_ilanlar';
+            
+            // Önce ilanları çek
+            $listings = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, status FROM $listings_table WHERE user_id = %d AND status != 'suspended'",
+                $user_id
+            ));
+            
+            $suspended_count = 0;
+            foreach ($listings as $listing) {
+                // Her ilanın mevcut durumunu kaydet ve suspended yap
+                $wpdb->update(
+                    $listings_table,
+                    array(
+                        'status' => 'suspended',
+                        'status_before_suspend' => $listing->status
+                    ),
+                    array('id' => $listing->id),
+                    array('%s', '%s'),
+                    array('%d')
+                );
+                $suspended_count++;
+            }
+            
+            error_log('Suspended listings count: ' . $suspended_count);
+            
+            wp_send_json_success('Kullanıcı yasaklandı ve ' . $suspended_count . ' ilan askıya alındı');
+        } else {
+            wp_send_json_error('Veritabanı hatası: ' . $wpdb->last_error);
+        }
+    }
+
+    /**
+     * Kullanıcının yasağını kaldır
+     */
+    public function ajax_unban_user() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Yetkiniz yok');
+        }
+
+        global $wpdb;
+        $user_id = intval($_POST['user_id'] ?? 0);
+        $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        
+        $result = $wpdb->update(
+            $table_name,
+            array(
+                'is_banned' => 0,
+                'ban_reason' => null,
+                'banned_at' => null
+            ),
+            array('user_id' => $user_id),
+            array('%d', '%s', '%s'),
+            array('%d')
+        );
+
+        if ($result !== false) {
+            // Askıdaki ilanları eski durumlarına geri getir
+            $listings_table = $wpdb->prefix . 'amator_ilanlar';
+            
+            // Suspended olan ilanları çek
+            $listings = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, status_before_suspend FROM $listings_table WHERE user_id = %d AND status = 'suspended'",
+                $user_id
+            ));
+            
+            $restored_count = 0;
+            foreach ($listings as $listing) {
+                // Eğer eski durum kaydedilmişse ona dön, yoksa approved yap
+                $old_status = !empty($listing->status_before_suspend) ? $listing->status_before_suspend : 'approved';
+                
+                $wpdb->update(
+                    $listings_table,
+                    array(
+                        'status' => $old_status,
+                        'status_before_suspend' => null
+                    ),
+                    array('id' => $listing->id),
+                    array('%s', '%s'),
+                    array('%d')
+                );
+                $restored_count++;
+            }
+            
+            wp_send_json_success('Yasak kaldırıldı ve ' . $restored_count . ' ilan eski durumuna döndürüldü');
+        } else {
+            wp_send_json_error('Veritabanı hatası');
+        }
+    }
+
+    /**
+     * Kullanıcının yasaklı olup olmadığını kontrol et
+     */
+    public function ajax_check_user_ban() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        
+        $user = $wpdb->get_row($wpdb->prepare(
+            "SELECT is_banned, ban_reason, banned_at FROM $table_name WHERE user_id = %d",
+            $user_id
+        ));
+
+        if ($user && $user->is_banned) {
+            wp_send_json_success(array(
+                'is_banned' => true,
+                'ban_reason' => $user->ban_reason,
+                'banned_at' => $user->banned_at
+            ));
+        } else {
+            wp_send_json_success(array('is_banned' => false));
+        }
     }
 
     private function create_search_alerts_table() {
@@ -709,6 +1013,33 @@ class AmateurTelsizIlanVitrini {
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             KEY user_id (user_id)
+        ) $charset_collate;";
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta($sql);
+    }
+    
+    private function create_email_alerts_table() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'amator_email_alerts';
+        $charset_collate = $wpdb->get_charset_collate();
+
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+            return;
+        }
+
+        $sql = "CREATE TABLE $table_name (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            user_id bigint(20) NOT NULL,
+            alert_new_requests tinyint(1) DEFAULT 1,
+            alert_inquiries tinyint(1) DEFAULT 1,
+            alert_listing_approval tinyint(1) DEFAULT 1,
+            alert_system_notifications tinyint(1) DEFAULT 1,
+            email_frequency varchar(20) DEFAULT 'immediate',
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            updated_at datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY user_id (user_id)
         ) $charset_collate;";
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -1284,15 +1615,26 @@ class AmateurTelsizIlanVitrini {
         wp_send_json_error('İlan düzenlemek için giriş yapmalısınız');
     }
     
+    $user_id = get_current_user_id();
+    
+    // Kullanıcının yasaklı olup olmadığını kontrol et
     global $wpdb;
+    $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+    $is_banned = $wpdb->get_var($wpdb->prepare(
+        "SELECT is_banned FROM $users_table WHERE user_id = %d",
+        $user_id
+    ));
+    
+    if ($is_banned) {
+        wp_send_json_error('Hesabınız yasaklı olduğu için ilan düzenleme yetkiniz yok');
+    }
+    
     $table_name = $wpdb->prefix . 'amator_ilanlar';
     
     $id = intval($_POST['id'] ?? 0);
     if (!$id) {
         wp_send_json_error('ID parametresi gerekli');
     }
-    
-    $user_id = get_current_user_id();
     
     // İlanın kullanıcıya ait olup olmadığını kontrol et
     $existing_listing = $wpdb->get_row($wpdb->prepare("SELECT user_id, images, featured_image_index, emoji, status FROM $table_name WHERE id = %d", $id), ARRAY_A);
@@ -1524,15 +1866,26 @@ class AmateurTelsizIlanVitrini {
         wp_send_json_error('İlan silmek için giriş yapmalısınız');
     }
     
+    $user_id = get_current_user_id();
+    
+    // Kullanıcının yasaklı olup olmadığını kontrol et
     global $wpdb;
+    $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+    $is_banned = $wpdb->get_var($wpdb->prepare(
+        "SELECT is_banned FROM $users_table WHERE user_id = %d",
+        $user_id
+    ));
+    
+    if ($is_banned) {
+        wp_send_json_error('Hesabınız yasaklı olduğu için ilan silme yetkiniz yok');
+    }
+    
     $table_name = $wpdb->prefix . 'amator_ilanlar';
     
     $id = intval($_POST['id'] ?? 0);
     if (!$id) {
         wp_send_json_error('ID parametresi gerekli');
     }
-    
-    $user_id = get_current_user_id();
     
     // İlanın kullanıcıya ait olup olmadığını kontrol et
     $existing_listing = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id), ARRAY_A);
