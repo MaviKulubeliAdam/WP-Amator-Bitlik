@@ -35,14 +35,7 @@ if (!isset($ativ_terms_content) || empty($ativ_terms_content)) {
 window.pageType = 'profile';
 window.ajaxurl = '<?php echo admin_url('admin-ajax.php'); ?>';
 window.bitlikUserId = <?php echo intval($user_id); ?>;
-window.atheneaNonce = '<?php 
-    $nonce = wp_create_nonce('ativ_profile_nonce');
-    echo $nonce;
-    error_log('[NONCE CREATION] Nonce oluşturuldu: ' . $nonce . ' - User ID: ' . get_current_user_id());
-?>';
-
-console.log('[PAGE LOAD] atheneaNonce initial value:', window.atheneaNonce);
-console.log('[PAGE LOAD] User ID:', window.bitlikUserId);
+window.atheneaNonce = '<?php echo wp_create_nonce('ativ_profile_nonce'); ?>';
 
 document.addEventListener('DOMContentLoaded', function() {
     // Profil bilgilerini AJAX ile yükle

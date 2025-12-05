@@ -47,13 +47,8 @@ document.addEventListener('DOMContentLoaded', function() {
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        console.log('[PROFILE DEBUG] Form submit başladı');
-        console.log('[PROFILE DEBUG] ajaxurl:', window.ajaxurl);
-        console.log('[PROFILE DEBUG] atheneaNonce:', window.atheneaNonce);
-        
         // Önce ban durumunu kontrol et
         try {
-            console.log('[PROFILE DEBUG] Ban kontrolü yapılıyor...');
             const banCheckResponse = await fetch(window.ajaxurl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -62,30 +57,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     nonce: window.atheneaNonce || ''
                 })
             });
-            console.log('[PROFILE DEBUG] Ban yanıt status:', banCheckResponse.status);
-            
             const banStatus = await banCheckResponse.json();
-            console.log('[PROFILE DEBUG] Ban durumu tam:', banStatus);
-            console.log('[PROFILE DEBUG] banStatus.data:', banStatus.data);
-            console.log('[PROFILE DEBUG] banStatus.data.is_banned:', banStatus.data?.is_banned);
-            
             if (banStatus.data && banStatus.data.is_banned) {
-                console.log('[PROFILE DEBUG] Kullanıcı banlanmış! Modal gösterilecek');
-                console.log('[PROFILE DEBUG] showBannedUserModal var mı?', !!window.showBannedUserModal);
-                
                 // Ban modalı göster
                 if (window.showBannedUserModal) {
-                    console.log('[PROFILE DEBUG] Modal gösteriliyor...');
                     window.showBannedUserModal(banStatus.data.ban_reason, banStatus.data.banned_at);
-                } else {
-                    console.error('[PROFILE DEBUG] showBannedUserModal fonksiyonu bulunamadı!');
                 }
                 return;
             }
-            console.log('[PROFILE DEBUG] Kullanıcı banlanmamış, form devam ediyor');
         } catch (e) {
-            console.error('[PROFILE DEBUG] Ban durumu kontrol hatası:', e);
-            // Hata durumunda devam et (opsiyonel)
+            console.error('Ban durumu kontrol edilemedi:', e);
         }
         
         const callsign = document.getElementById('profileCallsign').value.trim();
@@ -101,18 +82,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const termsAccepted = document.getElementById('profileTermsCheckbox').checked;
         const user_id = window.bitlikUserId || null;
 
-        console.log('[PROFILE DEBUG] Validasyon başlıyor');
-        console.log('[PROFILE DEBUG] termsAccepted:', termsAccepted);
-        console.log('[PROFILE DEBUG] callsign:', callsign);
-        console.log('[PROFILE DEBUG] name:', name);
-        console.log('[PROFILE DEBUG] email:', email);
-        console.log('[PROFILE DEBUG] location:', location);
-        console.log('[PROFILE DEBUG] phoneNumber:', phoneNumber);
-        console.log('[PROFILE DEBUG] phone (birleştirilmiş):', phone);
-
         // Sözleşme kontrolü
         if (!termsAccepted) {
-            console.log('[PROFILE DEBUG] HATA: Sözleşme kabul edilmemiş');
             showMessage('Kullanıcı sözleşmesini kabul etmelisiniz.', false);
             return;
         }
@@ -153,35 +124,35 @@ document.addEventListener('DOMContentLoaded', function() {
         data.append('email', email);
         data.append('location', location);
         data.append('phone', phone);
-        
-        console.log('[PROFILE DEBUG] FormData oluşturma:');
-        console.log('[PROFILE DEBUG] window.atheneaNonce değeri:', window.atheneaNonce);
-        console.log('[PROFILE DEBUG] typeof atheneaNonce:', typeof window.atheneaNonce);
-        
         data.append('_wpnonce', window.atheneaNonce || '');
-        
-        console.log('[PROFILE DEBUG] FormData nonce eklenmiştir');
 
         showLoading(true);
         fetch(window.ajaxurl, {
             method: 'POST',
             body: data
         })
-        .then(res => res.json())
-        .then(res => {
-            showLoading(false);
-            console.log('[PROFILE DEBUG] Form submit yanıtı:', res);
-            console.log('[PROFILE DEBUG] res.success:', res.success);
-            console.log('[PROFILE DEBUG] res.data:', res.data);
-            if (res.success) {
-                showMessage(res.data.message, true);
-            } else {
-                showMessage(res.data.message || 'Kayıt başarısız.', false);
+        .then(async res => {
+            // Önce ham metni al
+            const text = await res.text();
+            // Deneyerek JSON parse et
+            try {
+                const json = JSON.parse(text);
+                showLoading(false);
+                if (json.success) {
+                    showMessage(json.data.message, true);
+                } else {
+                    showMessage(json.data.message || 'Kayıt başarısız.', false);
+                }
+            } catch (e) {
+                // JSON parse hatası -> sunucu HTML veya hata döndürüyor
+                showLoading(false);
+                console.error('Sunucu beklenmeyen yanıt döndürdü:', text);
+                showMessage('Sunucu hatası (beklenmeyen yanıt). Konsolu kontrol edin.', false);
             }
         })
         .catch((err) => {
             showLoading(false);
-            console.error('[PROFILE DEBUG] Fetch hatası:', err);
+            console.error('Sunucu hatası:', err);
             showMessage('Sunucu hatası.', false);
         });
     });

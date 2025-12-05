@@ -74,18 +74,34 @@ add_action('wp_ajax_amator_bitlik_add_user', function() {
     }
     global $wpdb;
     $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
-    $result = $wpdb->insert($table_name, [
-        'user_id'  => intval($_POST['user_id']),
+    $user_id_int = intval($_POST['user_id']);
+
+    $payload = [
+        'user_id'  => $user_id_int,
         'callsign' => strtoupper(str_replace(' ', '', sanitize_text_field($_POST['callsign']))),
         'name'     => sanitize_text_field($_POST['name']),
         'email'    => sanitize_email($_POST['email']),
         'location' => sanitize_text_field($_POST['location']),
         'phone'    => sanitize_text_field($_POST['phone']),
-    ], ['%d', '%s', '%s', '%s', '%s', '%s']);
-    if ($result) {
-        wp_send_json_success(['message' => 'Kayıt başarıyla eklendi.']);
+    ];
+
+    // Eğer kullanıcı kaydı varsa UPDATE, yoksa INSERT
+    $existing_id = $wpdb->get_var($wpdb->prepare("SELECT id FROM $table_name WHERE user_id = %d", $user_id_int));
+    $result = false;
+    if ($existing_id) {
+        $result = $wpdb->update($table_name, $payload, ['user_id' => $user_id_int], ['%d','%s','%s','%s','%s','%s'], ['%d']);
+        if ($result !== false) {
+            wp_send_json_success(['message' => 'Profil başarıyla güncellendi.']);
+        } else {
+            wp_send_json_error(['message' => 'Profil güncellenemedi.']);
+        }
     } else {
-        wp_send_json_error(['message' => 'Kayıt eklenemedi.']);
+        $result = $wpdb->insert($table_name, $payload, ['%d','%s','%s','%s','%s','%s']);
+        if ($result) {
+            wp_send_json_success(['message' => 'Kayıt başarıyla eklendi.']);
+        } else {
+            wp_send_json_error(['message' => 'Kayıt eklenemedi.']);
+        }
     }
     wp_die();
 });
