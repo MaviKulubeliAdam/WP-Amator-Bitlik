@@ -607,13 +607,21 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
     modal.classList.add('active');
     document.body.style.overflow = 'hidden';
     
-    // Kullanıcı ilanlarını AJAX ile getir
-    const ajaxUrl = ajaxurl + '?action=get_user_listings&user_id=' + user.user_id;
-    console.log('🔍 AJAX İstek URL:', ajaxUrl);
-    console.log('👤 User ID:', user.user_id);
-    
-    fetch(ajaxUrl)
-        .then(res => {
+    // Check if user is banned
+    fetch(ajaxurl + '?action=ativ_check_user_banned&user_id=' + user.user_id, {
+        method: 'GET',
+        credentials: 'same-origin'
+    })
+    .then(res => res.json())
+    .then(banData => {
+        const isBanned = banData.success && banData.data && banData.data.is_banned;
+        
+        // Kullanıcı ilanlarını AJAX ile getir
+        const ajaxUrl = ajaxurl + '?action=get_user_listings&user_id=' + user.user_id;
+        console.log('🔍 AJAX İstek URL:', ajaxUrl);
+        console.log('👤 User ID:', user.user_id);
+        
+        return fetch(ajaxUrl).then(res => {
             console.log('📡 Response Status:', res.status);
             console.log('📡 Response OK:', res.ok);
             console.log('📡 Response Headers:', res.headers);
@@ -630,15 +638,18 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
                 try {
                     const json = JSON.parse(text);
                     console.log('✅ JSON Parse Başarılı:', json);
-                    return json;
+                    return { data: json, isBanned: isBanned };
                 } catch (e) {
                     console.error('❌ JSON Parse Hatası:', e);
                     console.error('❌ Gelen içerik JSON değil:', text);
                     throw new Error('Yanıt JSON formatında değil: ' + text.substring(0, 100));
                 }
             });
-        })
-        .then(data => {
+        });
+    })
+    .then(result => {
+        const data = result.data;
+        const isBanned = result.isBanned;
             let listingsHtml = '';
             
             if (data.success && data.data && data.data.length > 0) {
@@ -733,6 +744,33 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
                     </div>
                 </div>
                 
+                ${isBanned ? `
+                    <div style="background: #f8d7da; border: 2px solid #dc3545; border-radius: 8px; padding: 15px; margin: 20px 0;">
+                        <div style="display: flex; align-items: center; gap: 10px; color: #721c24;">
+                            <span style="font-size: 24px;">🚫</span>
+                            <strong>Bu kullanıcı yasaklanmıştır</strong>
+                        </div>
+                    </div>
+                ` : ''}
+                
+                <div style="margin: 20px 0; display: flex; gap: 10px;">
+                    ${isBanned ? `
+                        <button 
+                            onclick="unbanUser(${user.user_id}, '${decodeHtml(user.name || '')}')" 
+                            class="ativ-user-detail-btn" 
+                            style="background: #28a745; flex: 1;">
+                            ✅ Yasağı Kaldır
+                        </button>
+                    ` : `
+                        <button 
+                            onclick="banUser(${user.user_id}, '${decodeHtml(user.name || '')}')" 
+                            class="ativ-user-detail-btn" 
+                            style="background: #dc3545; flex: 1;">
+                            🚫 Kullanıcıyı Yasakla
+                        </button>
+                    `}
+                </div>
+                
                 <div class="ativ-user-listings-section">
                     <h3>📋 Kullanıcının İlanları (${user.listing_count || 0})</h3>
                     ${listingsHtml}
@@ -772,5 +810,74 @@ $total_listings = $wpdb->get_var("SELECT COUNT(*) FROM $listings_table");
             }
         }
     });
+    
+    // Ban/Unban functions
+    window.banUser = function(userId, userName) {
+        if (!confirm(`"${userName}" adlı kullanıcıyı yasaklamak istediğinize emin misiniz?\n\nBu işlem:\n- Kullanıcının tüm ilanlarını askıya alacak\n- Kullanıcı ilan düzenleyemeyecek ve silemeyecek`)) {
+            return;
+        }
+        
+        const nonce = '<?php echo wp_create_nonce('ativ_admin_nonce'); ?>';
+        
+        fetch(ajaxurl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                action: 'ativ_ban_user',
+                user_id: userId,
+                _wpnonce: nonce
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ ' + data.data);
+                window.closeUserModal();
+                location.reload();
+            } else {
+                alert('❌ ' + (data.data || 'Bir hata oluştu'));
+            }
+        })
+        .catch(error => {
+            console.error('Ban error:', error);
+            alert('❌ Bir hata oluştu: ' + error.message);
+        });
+    };
+    
+    window.unbanUser = function(userId, userName) {
+        if (!confirm(`"${userName}" adlı kullanıcının yasağını kaldırmak istediğinize emin misiniz?\n\nBu işlem:\n- Kullanıcının askıya alınmış ilanlarını "Onay Bekliyor" durumuna getirecek\n- Kullanıcı tekrar ilan düzenleyebilecek ve silebilecek`)) {
+            return;
+        }
+        
+        const nonce = '<?php echo wp_create_nonce('ativ_admin_nonce'); ?>';
+        
+        fetch(ajaxurl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                action: 'ativ_unban_user',
+                user_id: userId,
+                _wpnonce: nonce
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                alert('✅ ' + data.data);
+                window.closeUserModal();
+                location.reload();
+            } else {
+                alert('❌ ' + (data.data || 'Bir hata oluştu'));
+            }
+        })
+        .catch(error => {
+            console.error('Unban error:', error);
+            alert('❌ Bir hata oluştu: ' + error.message);
+        });
+    };
 })();
 </script>

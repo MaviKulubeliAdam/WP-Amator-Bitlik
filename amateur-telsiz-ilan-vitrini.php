@@ -174,6 +174,11 @@ class AmateurTelsizIlanVitrini {
         add_action('wp_ajax_ativ_delete_search_alert', array($this, 'ajax_delete_search_alert'));
         add_action('wp_ajax_get_user_listings', array($this, 'ajax_get_user_listings'));
         
+        // User ban/unban AJAX Actions (Admin only)
+        add_action('wp_ajax_ativ_ban_user', array($this, 'ajax_ban_user'));
+        add_action('wp_ajax_ativ_unban_user', array($this, 'ajax_unban_user'));
+        add_action('wp_ajax_ativ_check_user_banned', array($this, 'ajax_check_user_banned'));
+        
         // Custom cron interval'ı tanımla (6 saat)
         add_filter('cron_schedules', array($this, 'add_custom_cron_schedules'));
         
@@ -684,6 +689,104 @@ class AmateurTelsizIlanVitrini {
         ));
 
         wp_send_json_success($listings);
+    }
+    
+    /**
+     * Ban a user (Admin only)
+     */
+    public function ajax_ban_user() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Yetkiniz yok');
+        }
+        
+        check_ajax_referer('ativ_admin_nonce', '_wpnonce');
+        
+        $user_id = intval($_POST['user_id'] ?? 0);
+        
+        if (!$user_id) {
+            wp_send_json_error('Geçersiz kullanıcı ID');
+        }
+        
+        // Set user as banned
+        update_user_meta($user_id, 'ativ_user_banned', '1');
+        
+        // Suspend all user's listings
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'amator_ilanlar';
+        
+        $result = $wpdb->update(
+            $table_name,
+            array('status' => 'suspended'),
+            array('user_id' => $user_id),
+            array('%s'),
+            array('%d')
+        );
+        
+        if ($result !== false) {
+            wp_send_json_success('Kullanıcı yasaklandı ve ilanları askıya alındı');
+        } else {
+            wp_send_json_error('Kullanıcı yasaklanırken hata oluştu');
+        }
+    }
+    
+    /**
+     * Unban a user (Admin only)
+     */
+    public function ajax_unban_user() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Yetkiniz yok');
+        }
+        
+        check_ajax_referer('ativ_admin_nonce', '_wpnonce');
+        
+        $user_id = intval($_POST['user_id'] ?? 0);
+        
+        if (!$user_id) {
+            wp_send_json_error('Geçersiz kullanıcı ID');
+        }
+        
+        // Remove banned status
+        delete_user_meta($user_id, 'ativ_user_banned');
+        
+        // Change suspended listings back to pending for review
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'amator_ilanlar';
+        
+        $result = $wpdb->update(
+            $table_name,
+            array('status' => 'pending'),
+            array(
+                'user_id' => $user_id,
+                'status' => 'suspended'
+            ),
+            array('%s'),
+            array('%d', '%s')
+        );
+        
+        if ($result !== false) {
+            wp_send_json_success('Kullanıcı yasağı kaldırıldı ve ilanları incelemeye alındı');
+        } else {
+            wp_send_json_error('Kullanıcı yasağı kaldırılırken hata oluştu');
+        }
+    }
+    
+    /**
+     * Check if user is banned (Admin only)
+     */
+    public function ajax_check_user_banned() {
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Yetkiniz yok');
+        }
+        
+        $user_id = intval($_GET['user_id'] ?? 0);
+        
+        if (!$user_id) {
+            wp_send_json_error('Geçersiz kullanıcı ID');
+        }
+        
+        $is_banned = $this->is_user_banned($user_id);
+        
+        wp_send_json_success(array('is_banned' => $is_banned));
     }
 
     private function create_search_alerts_table() {
