@@ -14,6 +14,77 @@ define('ATIV_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('ATIV_UPLOAD_DIR', ATIV_PLUGIN_PATH . 'uploads/');
 define('ATIV_UPLOAD_URL', ATIV_PLUGIN_URL . 'uploads/');
 
+// Eklenti aktif edildiğinde rewrite rules'ı kaydet
+register_activation_hook(__FILE__, 'ativ_activate_plugin');
+function ativ_activate_plugin() {
+    // Veritabanı tablolarını oluştur
+    ativ_create_tables();
+    
+    // Upload dizinini oluştur
+    ativ_create_upload_dir();
+    
+    // Rewrite rules'ı ekle ve temizle
+    add_rewrite_rule('^ilan/([0-9]+)/?$', 'index.php?listing_detail=$matches[1]', 'top');
+    flush_rewrite_rules();
+}
+
+function ativ_create_tables() {
+    global $wpdb;
+    $table_name = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+    $charset_collate = $wpdb->get_charset_collate();
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+        user_id BIGINT(20) UNSIGNED NOT NULL,
+        callsign VARCHAR(50) NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) NOT NULL,
+        location VARCHAR(100) NOT NULL,
+        phone VARCHAR(20) NOT NULL,
+        is_banned TINYINT(1) DEFAULT 0,
+        ban_reason TEXT,
+        banned_at DATETIME,
+        PRIMARY KEY (id),
+        KEY user_id (user_id)
+    ) $charset_collate;";
+    require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+    dbDelta($sql);
+    
+    // Mevcut tabloya kolonları ekle (güncelleme için)
+    $row = $wpdb->get_results("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE table_name = '$table_name' AND COLUMN_NAME = 'is_banned'");
+    if(empty($row)){
+        $wpdb->query("ALTER TABLE $table_name ADD is_banned TINYINT(1) DEFAULT 0");
+        $wpdb->query("ALTER TABLE $table_name ADD ban_reason TEXT");
+        $wpdb->query("ALTER TABLE $table_name ADD banned_at DATETIME");
+    }
+}
+
+function ativ_create_upload_dir() {
+    if (!file_exists(ATIV_UPLOAD_DIR)) {
+        wp_mkdir_p(ATIV_UPLOAD_DIR);
+    }
+    
+    // Güvenlik için .htaccess dosyası oluştur
+    $htaccess_file = ATIV_UPLOAD_DIR . '.htaccess';
+    $htaccess_content = 'Options -Indexes' . PHP_EOL .
+                        'RewriteEngine On' . PHP_EOL .
+                        PHP_EOL .
+                        '# Görsel ve video dosyalarına erişime izin ver' . PHP_EOL .
+                        '<FilesMatch "\.(jpg|jpeg|png|gif|webp|mp4|webm|JPG|JPEG|PNG|GIF|WEBP|MP4|WEBM)$">' . PHP_EOL .
+                        '    Order allow,deny' . PHP_EOL .
+                        '    Allow from all' . PHP_EOL .
+                        '</FilesMatch>' . PHP_EOL .
+                        PHP_EOL .
+                        '# Tehlikeli dosya türlerini engelle' . PHP_EOL .
+                        '<FilesMatch "\.(php|phtml|php3|php4|php5|php7|phps|cgi|pl|asp|aspx|shtml|shtm|fcgi|exe|com|bat|sh|py|rb|htaccess|htpasswd|ini|log|sql)$">' . PHP_EOL .
+                        '    Order deny,allow' . PHP_EOL .
+                        '    Deny from all' . PHP_EOL .
+                        '</FilesMatch>' . PHP_EOL;
+    
+    if (!file_exists($htaccess_file)) {
+        file_put_contents($htaccess_file, $htaccess_content);
+    }
+}
+
 // Kullanıcılar tablosu oluşturma
 register_activation_hook(__FILE__, function() {
     global $wpdb;
@@ -221,6 +292,10 @@ class AmateurTelsizIlanVitrini {
         // İlan detay sayfası için query variable ve template
         add_filter('query_vars', array($this, 'add_query_vars'));
         add_filter('template_include', array($this, 'load_listing_detail_template'));
+        add_filter('wp_title', array($this, 'set_listing_detail_title'), 10, 2);
+        add_filter('document_title_parts', array($this, 'set_listing_detail_title_parts'));
+        add_filter('pre_get_document_title', array($this, 'set_listing_detail_pre_title'), 1, 1);
+        add_filter('wpseo_title', array($this, 'set_listing_detail_wpseo_title'), 10, 1);
     }
     
     /**
@@ -343,6 +418,74 @@ class AmateurTelsizIlanVitrini {
             }
         }
         return $template;
+    }
+    
+    /**
+     * İlan detay sayfası için sayfa başlığını ayarla (wp_title filtesi)
+     */
+    public function set_listing_detail_title($title, $sep = '') {
+        $listing_title = $this->get_listing_title_from_request();
+        if ($listing_title) {
+            return $listing_title . ' ' . $sep . ' ' . get_bloginfo('name');
+        }
+        return $title;
+    }
+    
+    /**
+     * İlan detay sayfası için sayfa başlığını ayarla (document_title_parts filtesi - newer WP versions)
+     */
+    public function set_listing_detail_title_parts($title_parts) {
+        $listing_title = $this->get_listing_title_from_request();
+        if ($listing_title) {
+            $title_parts['title'] = $listing_title;
+        }
+        return $title_parts;
+    }
+
+    /**
+     * Elementor veya tema override etmeden önce başlığı yakala
+     */
+    public function set_listing_detail_pre_title($title) {
+        $listing_title = $this->get_listing_title_from_request();
+        return $listing_title ?: $title;
+    }
+
+    /**
+     * SEO eklentilerinin title'ını da ilan başlığına zorla
+     */
+    public function set_listing_detail_wpseo_title($title) {
+        $listing_title = $this->get_listing_title_from_request();
+        return $listing_title ?: $title;
+    }
+
+    /**
+     * Request'ten ilan ID'sini alıp başlığı getirir (tek noktadan kontrol)
+     */
+    private function get_listing_title_from_request() {
+        global $wp_query, $wpdb;
+        $listing_id = $wp_query->query_vars['listing_detail'] ?? $_GET['listing_detail'] ?? null;
+        if (!$listing_id) {
+            return null;
+        }
+
+        static $cache = array();
+        $listing_id = intval($listing_id);
+        if (isset($cache[$listing_id])) {
+            return $cache[$listing_id];
+        }
+
+        $listings_table = $wpdb->prefix . 'amator_ilanlar';
+        $listing = $wpdb->get_row($wpdb->prepare(
+            "SELECT title FROM `{$listings_table}` WHERE id = %d",
+            $listing_id
+        ));
+
+        if ($listing && !empty($listing->title)) {
+            $cache[$listing_id] = esc_html($listing->title);
+            return $cache[$listing_id];
+        }
+
+        return null;
     }
     
     private function create_upload_dir() {
