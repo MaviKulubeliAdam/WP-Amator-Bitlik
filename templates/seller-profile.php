@@ -97,6 +97,23 @@ document.addEventListener('DOMContentLoaded', function() {
 <script src="<?php echo plugins_url('js/profile.js', dirname(__FILE__)); ?>"></script>
 
 <div id="bitlik-profile-container" class="bitlik-profile-wrapper">
+    <style>
+        .search-alert-card {border:1px solid #e5e7eb;border-radius:12px;padding:18px 20px;box-shadow:0 2px 8px rgba(0,0,0,0.08);background:#fff;margin-bottom:14px;display:flex;justify-content:space-between;gap:16px;align-items:flex-start;}
+        .search-alert-card h4 {margin:0 0 12px 0;font-size:17px;font-weight:700;color:#1e293b;border-bottom:2px solid #f1f5f9;padding-bottom:8px;}
+        .search-alert-card .alert-meta {display:flex;flex-direction:column;gap:10px;color:#475569;font-size:13px;line-height:1.6;}
+        .alert-detail-row {display:flex;align-items:center;gap:10px;padding:6px 0;}
+        .alert-detail-row .label {font-weight:600;color:#334155;min-width:100px;flex-shrink:0;}
+        .alert-detail-row .value {color:#64748b;background:#f8fafc;padding:4px 12px;border-radius:6px;border:1px solid #e2e8f0;}
+        .alert-badges {display:flex;gap:8px;margin-top:4px;flex-wrap:wrap;}
+        .chip {display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;background:#f1f5f9;color:#475569;font-size:12px;font-weight:600;border:1px solid #e2e8f0;}
+        .chip.primary {background:#dbeafe;color:#1e40af;border-color:#bfdbfe;}
+        .chip.accent {background:#fef3c7;color:#92400e;border-color:#fde68a;}
+        .chip.muted {background:#f8fafc;color:#64748b;border-color:#e2e8f0;font-weight:500;font-size:11px;}
+        .search-alerts-header {display:flex;justify-content:flex-end;margin-bottom:14px;}
+        .search-alerts-items {display:flex;flex-direction:column;gap:12px;}
+        .alert-actions {display:flex;flex-direction:column;gap:8px;min-width:110px;}
+        @media(max-width:768px){.search-alert-card{flex-direction:column;}.alert-actions{flex-direction:row;width:100%;justify-content:flex-end;}}
+    </style>
     <div class="profile-header">
         <h1>👤 Bitlik Profilim</h1>
         <p class="profile-subtitle">Profil bilgilerinizi yönetin ve tercihlerinizi ayarlayın</p>
@@ -171,7 +188,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
         <!-- 2. İlan Arama Uyarıları Sekmesi -->
         <div id="search-alerts" class="profile-tab-panel">
-            <div class="section-title">İlan Arama Uyarıları</div>
             <p class="section-description">Belirli kriterlere uygun ilanlar yayınlandığında e-posta uyarısı alın</p>
 
             <div class="search-alerts-list" id="searchAlertsList">
@@ -190,6 +206,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
 
                     <form id="newSearchAlertForm" class="profile-form">
+                        <input type="hidden" id="alertId" name="alert_id" value="">
                         <div class="form-group">
                             <label for="alertName">Uyarı Adı</label>
                             <input type="text" id="alertName" name="alert_name" placeholder="Örn: Yüksek Güç Amplifiyatörler" required>
@@ -198,8 +215,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="alertCategory">Kategori</label>
-                                <select id="alertCategory" name="category" required>
-                                    <option value="">-- Seçiniz --</option>
+                                <select id="alertCategory" name="category">
+                                    <option value="">Tümü</option>
                                     <option value="transceiver">Telsiz</option>
                                     <option value="antenna">Anten</option>
                                     <option value="amplifier">Amplifikatör</option>
@@ -211,7 +228,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="form-group">
                                 <label for="alertCondition">Durum</label>
                                 <select id="alertCondition" name="condition">
-                                    <option value="">-- Tümü --</option>
+                                    <option value="">Tümü</option>
                                     <option value="Sıfır">Sıfır</option>
                                     <option value="Kullanılmış">Kullanılmış</option>
                                     <option value="Arızalı">Arızalı</option>
@@ -222,13 +239,30 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="alertBrand">Marka (İsteğe Bağlı)</label>
-                                <input type="text" id="alertBrand" name="brand" placeholder="Örn: Yaesu, Kenwood">
+                                <label for="alertLocation">Konum</label>
+                                <select id="alertLocation" name="location">
+                                    <option value="">Yükleniyor...</option>
+                                </select>
                             </div>
 
                             <div class="form-group">
-                                <label for="alertLocation">Konum (İsteğe Bağlı)</label>
-                                <input type="text" id="alertLocation" name="location" placeholder="Şehir adı">
+                                <label for="alertSeller">Satıcı Çağrı İşareti</label>
+                                <select id="alertSeller" name="seller_callsign">
+                                    <option value="">Yükleniyor...</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group" style="flex: 2;">
+                                <label for="alertKeyword">Anahtar Kelime</label>
+                                <input type="text" id="alertKeyword" name="keyword" placeholder="Örn: el telsizi, QO-100">
+                            </div>
+                            <div class="form-group" style="align-self: flex-end;">
+                                <label class="checkbox-inline" style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                                    <input type="checkbox" id="alertAllListings" name="all_listings" value="1" style="width: 16px; height: 16px;">
+                                    <span>Tüm ilanlar (anahtar kelimeyi yok say)</span>
+                                </label>
                             </div>
                         </div>
 
@@ -620,6 +654,51 @@ if (file_exists($plugin_dir . '/templates/partial-modal.php')) {
 
 .modal-close:hover {
     color: #1a1a1a;
+}
+
+/* Sayfalama */
+.pagination-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    margin-top: 20px;
+    padding: 16px 0;
+}
+
+.pagination-btn {
+    padding: 8px 16px;
+    border: 1px solid #ddd;
+    background: white;
+    color: #333;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+}
+
+.pagination-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pagination-btn.active {
+    background: #667eea;
+    color: white;
+    border-color: #667eea;
+    font-weight: 600;
+}
+
+.pagination-info {
+    font-size: 14px;
+    color: #666;
+    margin: 0 8px;
 }
 
 /* Ayarlar */
@@ -1038,26 +1117,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
             fetch(ajaxurl, {
                 method: 'POST',
+                credentials: 'same-origin',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
+                    'Accept': 'application/json'
                 },
                 body: new URLSearchParams({
                     action: 'ativ_load_search_alerts',
                     _wpnonce: '<?php echo wp_create_nonce('ativ_profile_nonce'); ?>'
                 })
             })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success && data.data.length > 0) {
-                    renderSearchAlerts(data.data);
+            .then(res => res.text())
+            .then(text => {
+                try {
+                    const data = JSON.parse(text);
+                    if (data.success) {
+                        renderSearchAlerts(data.data || []);
+                    } else {
+                        console.error('Search alerts API error:', data.data || data);
+                        showSearchAlertMessage('❌ ' + (data.data || 'Arama uyarıları alınamadı'));
+                    }
+                } catch (err) {
+                    console.error('Search alerts yanıtı JSON parse edilemedi:', err, text.slice(0, 200));
+                    showSearchAlertMessage('❌ Sunucudan beklenmeyen yanıt. Oturum süresi dolmuş olabilir.');
                 }
+            })
+            .catch(err => {
+                console.error('Search alerts fetch hatası:', err);
+                showSearchAlertMessage('❌ Ağ hatası.');
             });
         }
-
-        // Modal açma
-        document.getElementById('addSearchAlertBtn').addEventListener('click', function() {
-            document.getElementById('searchAlertModal').style.display = 'flex';
-        });
 
         // Modal kapatma
         document.getElementById('closeSearchAlertModal').addEventListener('click', function() {
@@ -1068,36 +1157,179 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('searchAlertModal').style.display = 'none';
         });
 
-        // Yeni arama uyarısı formu
-        document.getElementById('newSearchAlertForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-
-            const formData = new FormData(this);
-            formData.append('action', 'ativ_save_search_alert');
-            formData.append('_wpnonce', '<?php echo wp_create_nonce('ativ_profile_nonce'); ?>');
-
-            fetch(ajaxurl, {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => res.json())
-            .then(data => {
-                const msgDiv = document.getElementById('searchAlertMessage');
-                if (data.success) {
-                    msgDiv.textContent = '✅ Arama uyarısı başarıyla oluşturuldu!';
-                    msgDiv.className = 'form-message success';
-                    setTimeout(() => {
-                        document.getElementById('searchAlertModal').style.display = 'none';
-                        this.reset();
-                        loadSearchAlerts();
-                    }, 1500);
+        // Yeni arama uyarısı formu (çift bağlanmayı önlemek için guard)
+        const allListingsCheckbox = document.getElementById('alertAllListings');
+        const keywordInput = document.getElementById('alertKeyword');
+        if (allListingsCheckbox && keywordInput && !allListingsCheckbox.dataset.bound) {
+            allListingsCheckbox.addEventListener('change', function() {
+                if (this.checked) {
+                    keywordInput.value = '';
+                    keywordInput.disabled = true;
                 } else {
-                    msgDiv.textContent = '❌ Hata: ' + (data.data || 'Bilinmeyen hata');
-                    msgDiv.className = 'form-message error';
+                    keywordInput.disabled = false;
                 }
             });
+            allListingsCheckbox.dataset.bound = '1';
+        }
+
+        const newAlertForm = document.getElementById('newSearchAlertForm');
+        if (newAlertForm && !newAlertForm.dataset.bound) {
+            newAlertForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+
+                const formData = new FormData(this);
+                const alertId = formData.get('alert_id');
+                const isEdit = alertId && String(alertId).trim() !== '';
+                formData.append('action', isEdit ? 'ativ_update_search_alert' : 'ativ_save_search_alert');
+                formData.append('_wpnonce', '<?php echo wp_create_nonce('ativ_profile_nonce'); ?>');
+
+                // all_listings checkbox
+                const allListings = document.getElementById('alertAllListings');
+                formData.set('all_listings', allListings && allListings.checked ? '1' : '0');
+                if (allListings && allListings.checked) {
+                    formData.set('keyword', '');
+                }
+
+                fetch(ajaxurl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: formData
+                })
+                .then(res => res.text())
+                .then(text => {
+                    const msgDiv = document.getElementById('searchAlertMessage');
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success) {
+                            msgDiv.textContent = isEdit ? '✅ Arama uyarısı güncellendi!' : '✅ Arama uyarısı başarıyla oluşturuldu!';
+                            msgDiv.className = 'form-message success';
+                            setTimeout(() => {
+                                document.getElementById('searchAlertModal').style.display = 'none';
+                                resetAlertForm();
+                                const listContainer = document.getElementById('searchAlertsList');
+                                if (listContainer) listContainer.dataset.loaded = '';
+                                window.alertsCurrentPage = 1; // Yeni uyarı eklendiğinde ilk sayfaya dön
+                                loadSearchAlerts();
+                            }, 1200);
+                        } else {
+                            msgDiv.textContent = '❌ Hata: ' + (data.data || 'Bilinmeyen hata');
+                            msgDiv.className = 'form-message error';
+                        }
+                    } catch (err) {
+                        console.error('Arama uyarısı kaydet yanıtı JSON parse edilemedi:', err, text.slice(0, 200));
+                        const msgDiv = document.getElementById('searchAlertMessage');
+                        if (msgDiv) {
+                            msgDiv.textContent = '❌ Sunucudan beklenmeyen yanıt. Oturumunuz düşmüş olabilir, sayfayı yenileyin.';
+                            msgDiv.className = 'form-message error';
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.error('Arama uyarısı kaydet fetch hatası:', err);
+                    const msgDiv = document.getElementById('searchAlertMessage');
+                    if (msgDiv) {
+                        msgDiv.textContent = '❌ Ağ hatası. İnternet bağlantınızı kontrol edin.';
+                        msgDiv.className = 'form-message error';
+                    }
+                });
+            });
+            newAlertForm.dataset.bound = '1';
+        }
+
+        bindAddSearchAlertButton();
+    }
+
+    function bindAddSearchAlertButton() {
+        const btn = document.getElementById('addSearchAlertBtn');
+        if (!btn || btn.dataset.bound === '1') return;
+        btn.addEventListener('click', function() {
+            // Formu temizle ve mesajı sil
+            resetAlertForm();
+            const msgDiv = document.getElementById('searchAlertMessage');
+            if (msgDiv) {
+                msgDiv.textContent = '';
+                msgDiv.className = 'form-message';
+            }
+            document.getElementById('searchAlertModal').style.display = 'flex';
+            populateAlertCities();
+            populateAlertSellers();
+        });
+        btn.dataset.bound = '1';
+    }
+
+    function populateAlertCities() {
+        const select = document.getElementById('alertLocation');
+        if (!select) return;
+        // Eğer zaten doldurulduysa tekrar yükleme
+        if (select.dataset.loaded === '1') return;
+
+        fetch(ajaxurl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: new URLSearchParams({ action: 'ativ_get_cities' })
+        })
+        .then(res => res.text())
+        .then(text => {
+            try {
+                const resp = JSON.parse(text);
+                select.innerHTML = '';
+                const allOpt = document.createElement('option');
+                allOpt.value = '';
+                allOpt.textContent = 'Tümü';
+                select.appendChild(allOpt);
+                const cities = resp && resp.success && Array.isArray(resp.data) ? resp.data : [];
+                cities.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.il_adi;
+                    opt.textContent = c.il_adi;
+                    select.appendChild(opt);
+                });
+                select.dataset.loaded = '1';
+            } catch (err) {
+                console.error('Şehir listesi yanıtı JSON parse edilemedi:', err, text.slice(0, 200));
+            }
         });
     }
+
+    function populateAlertSellers() {
+        const select = document.getElementById('alertSeller');
+        if (!select) return;
+        if (select.dataset.loaded === '1') return;
+
+        fetch(ajaxurl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: new URLSearchParams({ action: 'ativ_get_sellers' })
+        })
+        .then(res => res.text())
+        .then(text => {
+            try {
+                const resp = JSON.parse(text);
+                select.innerHTML = '';
+                const allOpt = document.createElement('option');
+                allOpt.value = '';
+                allOpt.textContent = 'Tüm Satıcılar';
+                select.appendChild(allOpt);
+                if (resp.success && Array.isArray(resp.data)) {
+                    resp.data.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s.callsign;
+                        opt.textContent = s.callsign;
+                        select.appendChild(opt);
+                    });
+                }
+                select.dataset.loaded = '1';
+            } catch (err) {
+                console.error('Satıcı listesi yanıtı JSON parse edilemedi:', err, text.slice(0, 200));
+            }
+        });
+    }
+
+    // Sayfalama değişkenleri
+    window.alertsCurrentPage = window.alertsCurrentPage || 1;
+    window.alertsPerPage = 3;
 
     function renderSearchAlerts(alerts) {
         const listContainer = document.getElementById('searchAlertsList');
@@ -1108,25 +1340,112 @@ document.addEventListener('DOMContentLoaded', function() {
                     <button type="button" class="btn-secondary" id="addSearchAlertBtn">➕ Yeni Arama Uyarısı Ekle</button>
                 </div>
             `;
+            bindAddSearchAlertButton();
             return;
         }
 
-        let html = '<div class="search-alerts-items">';
-        alerts.forEach(alert => {
+        // Cache alerts for edit usage
+        window.bitlikSearchAlerts = alerts;
+
+        // Sayfalama hesaplamaları
+        const totalAlerts = alerts.length;
+        const totalPages = Math.ceil(totalAlerts / window.alertsPerPage);
+        const currentPage = Math.min(window.alertsCurrentPage, totalPages);
+        window.alertsCurrentPage = currentPage;
+        
+        const startIndex = (currentPage - 1) * window.alertsPerPage;
+        const endIndex = Math.min(startIndex + window.alertsPerPage, totalAlerts);
+        const pageAlerts = alerts.slice(startIndex, endIndex);
+
+        const categoryMap = {
+            'transceiver': 'Telsiz',
+            'antenna': 'Anten',
+            'amplifier': 'Amplifikatör',
+            'accessory': 'Aksesuar',
+            'other': 'Diğer',
+            '': 'Tümü'
+        };
+        const freqMap = {
+            'immediate': 'Anında (Hemen)',
+            'daily': 'Günlük',
+            'weekly': 'Haftalık'
+        };
+
+        const chip = (label) => `<span class="chip">${label}</span>`;
+
+        let html = '<div class="search-alerts-header"><button type="button" class="btn-secondary" id="addSearchAlertBtn">➕ Yeni Arama Uyarısı Ekle</button></div>';
+        html += '<div class="search-alerts-items">';
+        pageAlerts.forEach(alert => {
+            const categoryLabel = categoryMap[alert.category] || alert.category || 'Tümü';
+            const freqLabel = freqMap[alert.frequency] || alert.frequency || '';
+            const keywordLabel = alert.all_listings == 1 ? 'Tüm ilanlar' : (alert.keyword || '-');
+            const sellerLabel = alert.seller_callsign || 'Tüm satıcılar';
+            const locationLabel = alert.location || 'Tüm konumlar';
+            const conditionLabel = alert.condition || 'Tümü';
+            const priceLabel = formatPriceRange(alert.min_price, alert.max_price) || 'Belirtilmemiş';
+            const created = alert.created_at ? new Date(alert.created_at).toLocaleString('tr-TR', {dateStyle: 'short', timeStyle: 'short'}) : '';
+
             html += `
-                <div class="search-alert-item" data-id="${alert.id}">
-                    <div class="alert-content">
+                <div class="search-alert-card" data-id="${alert.id}">
+                    <div class="alert-content" style="flex:1;">
                         <h4>${alert.alert_name}</h4>
-                        <p>${alert.category}</p>
-                        <small>Sıklık: ${alert.frequency}</small>
+                        <div class="alert-badges">
+                            <span class="chip primary">${categoryLabel}</span>
+                            <span class="chip accent">${freqLabel}</span>
+                        </div>
+                        <div class="alert-meta">
+                            <div class="alert-detail-row">
+                                <span class="label">Anahtar Kelime:</span>
+                                <span class="value">${keywordLabel}</span>
+                            </div>
+                            <div class="alert-detail-row">
+                                <span class="label">Satıcı:</span>
+                                <span class="value">${sellerLabel}</span>
+                            </div>
+                            <div class="alert-detail-row">
+                                <span class="label">Konum:</span>
+                                <span class="value">${locationLabel}</span>
+                            </div>
+                            <div class="alert-detail-row">
+                                <span class="label">Durum:</span>
+                                <span class="value">${conditionLabel}</span>
+                            </div>
+                            <div class="alert-detail-row">
+                                <span class="label">Fiyat:</span>
+                                <span class="value">${priceLabel}</span>
+                            </div>
+                            ${created ? `<div class="alert-detail-row"><span class="chip muted">Oluşturma: ${created}</span></div>` : ''}
+                        </div>
                     </div>
                     <div class="alert-actions">
+                        <button class="btn-secondary edit-alert" data-id="${alert.id}">Düzenle</button>
                         <button class="btn-secondary delete-alert" data-id="${alert.id}">Sil</button>
                     </div>
                 </div>
             `;
         });
         html += '</div>';
+        
+        // Sayfalama kontrolleri
+        if (totalPages > 1) {
+            html += '<div class="pagination-container">';
+            html += `<button class="pagination-btn" id="prevPageBtn" ${currentPage === 1 ? 'disabled' : ''}>← Önceki</button>`;
+            
+            // Sayfa numaraları
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === currentPage) {
+                    html += `<button class="pagination-btn active">${i}</button>`;
+                } else if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                    html += `<button class="pagination-btn page-num-btn" data-page="${i}">${i}</button>`;
+                } else if (i === currentPage - 2 || i === currentPage + 2) {
+                    html += '<span class="pagination-info">...</span>';
+                }
+            }
+            
+            html += `<button class="pagination-btn" id="nextPageBtn" ${currentPage === totalPages ? 'disabled' : ''}>Sonraki →</button>`;
+            html += '</div>';
+        }
+        
         listContainer.innerHTML = html;
 
         // Silme düğmelerini bağla
@@ -1135,6 +1454,106 @@ document.addEventListener('DOMContentLoaded', function() {
                 deleteSearchAlert(this.getAttribute('data-id'));
             });
         });
+
+        // Düzenleme düğmeleri
+        document.querySelectorAll('.edit-alert').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const id = this.getAttribute('data-id');
+                startEditAlert(id);
+            });
+        });
+
+        // Sayfalama event listeners
+        const prevBtn = document.getElementById('prevPageBtn');
+        const nextBtn = document.getElementById('nextPageBtn');
+        
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function() {
+                if (window.alertsCurrentPage > 1) {
+                    window.alertsCurrentPage--;
+                    renderSearchAlerts(window.bitlikSearchAlerts);
+                    document.getElementById('searchAlertsList').scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        }
+        
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function() {
+                const totalPages = Math.ceil(window.bitlikSearchAlerts.length / window.alertsPerPage);
+                if (window.alertsCurrentPage < totalPages) {
+                    window.alertsCurrentPage++;
+                    renderSearchAlerts(window.bitlikSearchAlerts);
+                    document.getElementById('searchAlertsList').scrollIntoView({ behavior: 'smooth' });
+                }
+            });
+        }
+        
+        document.querySelectorAll('.page-num-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                window.alertsCurrentPage = parseInt(this.getAttribute('data-page'));
+                renderSearchAlerts(window.bitlikSearchAlerts);
+                document.getElementById('searchAlertsList').scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+
+        bindAddSearchAlertButton();
+    }
+
+    function showSearchAlertMessage(msg) {
+        const container = document.getElementById('searchAlertsList');
+        if (!container) return;
+        container.insertAdjacentHTML('afterbegin', `<div class="form-message error" style="margin-bottom:10px;">${msg}</div>`);
+    }
+
+    function formatPriceRange(min, max) {
+        const toTL = (v) => {
+            const num = Number(v);
+            if (!num || num <= 0) return null;
+            return num.toLocaleString('tr-TR') + ' TL';
+        };
+        const minVal = toTL(min);
+        const maxVal = toTL(max);
+        if (minVal && maxVal) return `${minVal} - ${maxVal}`;
+        if (minVal) return `${minVal} ve üzeri`;
+        if (maxVal) return `${maxVal} altı`;
+        return '';
+    }
+
+    function startEditAlert(id) {
+        const list = window.bitlikSearchAlerts || [];
+        const alert = list.find(a => String(a.id) === String(id));
+        if (!alert) return;
+        const modal = document.getElementById('searchAlertModal');
+        modal.style.display = 'flex';
+        populateAlertCities();
+        populateAlertSellers();
+
+        document.getElementById('alertId').value = alert.id;
+        document.getElementById('alertName').value = alert.alert_name || '';
+        document.getElementById('alertCategory').value = alert.category || '';
+        document.getElementById('alertCondition').value = alert.condition || '';
+        document.getElementById('alertLocation').value = alert.location || '';
+        document.getElementById('alertSeller').value = alert.seller_callsign || '';
+        document.getElementById('alertKeyword').value = alert.keyword || '';
+        document.getElementById('alertAllListings').checked = alert.all_listings == 1;
+        document.getElementById('alertAllListings').dispatchEvent(new Event('change'));
+        document.getElementById('alertMinPrice').value = alert.min_price || '';
+        document.getElementById('alertMaxPrice').value = alert.max_price || '';
+        document.getElementById('alertFrequency').value = alert.frequency || 'immediate';
+
+        const submitBtn = document.querySelector('#newSearchAlertForm button.btn-primary');
+        if (submitBtn) submitBtn.textContent = '💾 Uyarıyı Güncelle';
+    }
+
+    function resetAlertForm() {
+        const form = document.getElementById('newSearchAlertForm');
+        if (!form) return;
+        form.reset();
+        document.getElementById('alertId').value = '';
+        const submitBtn = document.querySelector('#newSearchAlertForm button.btn-primary');
+        if (submitBtn) submitBtn.textContent = '✅ Uyarı Oluştur';
+        const keywordInput = document.getElementById('alertKeyword');
+        if (keywordInput) keywordInput.disabled = false;
     }
 
     function deleteSearchAlert(alertId) {
@@ -1154,9 +1573,35 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                document.querySelector(`[data-id="${alertId}"]`)?.remove();
+                // Silinen uyarıyı cacheden çıkar
+                const currentAlerts = window.bitlikSearchAlerts || [];
+                const remainingAlerts = currentAlerts.filter(a => String(a.id) !== String(alertId));
+                
+                // Mevcut sayfada kaç uyarı kaldığını kontrol et
+                const currentPage = window.alertsCurrentPage;
+                const startIndex = (currentPage - 1) * window.alertsPerPage;
+                const alertsOnCurrentPage = remainingAlerts.slice(startIndex, startIndex + window.alertsPerPage).length;
+                
+                // Eğer mevcut sayfada uyarı kalmadıysa ve önceki sayfa varsa, bir önceki sayfaya git
+                if (alertsOnCurrentPage === 0 && currentPage > 1) {
+                    window.alertsCurrentPage = currentPage - 1;
+                } else if (remainingAlerts.length === 0) {
+                    // Hiç uyarı kalmadıysa 1. sayfaya dön
+                    window.alertsCurrentPage = 1;
+                }
+                
+                // Liste yüklemesini zorla (cache'i temizle)
+                const listContainer = document.getElementById('searchAlertsList');
+                if (listContainer) {
+                    listContainer.dataset.loaded = '';
+                }
+                
                 loadSearchAlerts();
             }
+        })
+        .catch(err => {
+            console.error('Uyarı silme hatası:', err);
+            alert('Uyarı silinirken bir hata oluştu.');
         });
     }
 });

@@ -224,6 +224,8 @@ class AmateurTelsizIlanVitrini {
         add_action('wp_ajax_ativ_save_email_alerts', array($this, 'ajax_save_email_alerts'));
         add_action('wp_ajax_ativ_load_search_alerts', array($this, 'ajax_load_search_alerts'));
         add_action('wp_ajax_ativ_save_search_alert', array($this, 'ajax_save_search_alert'));
+        add_action('wp_ajax_ativ_update_search_alert', array($this, 'ajax_update_search_alert'));
+        add_action('wp_ajax_ativ_get_sellers', array($this, 'ajax_get_sellers'));
         add_action('wp_ajax_ativ_delete_search_alert', array($this, 'ajax_delete_search_alert'));
         add_action('wp_ajax_check_user_ban', array($this, 'ajax_check_user_ban'));
         add_action('wp_ajax_ban_user', array($this, 'ajax_ban_user'));
@@ -718,7 +720,7 @@ class AmateurTelsizIlanVitrini {
         $user_id = get_current_user_id();
         
         global $wpdb;
-        $alerts_table = $wpdb->prefix . 'amator_email_alerts';
+        $alerts_table = $wpdb->prefix . 'amator_bitlik_eposta_uyarılari';
         
         // Tablo yoksa oluştur
         $this->create_email_alerts_table();
@@ -750,7 +752,7 @@ class AmateurTelsizIlanVitrini {
         $user_id = get_current_user_id();
         
         global $wpdb;
-        $alerts_table = $wpdb->prefix . 'amator_email_alerts';
+        $alerts_table = $wpdb->prefix . 'amator_bitlik_eposta_uyarılari';
         
         $alert_data = array(
             'alert_new_requests' => isset($_POST['alert_new_requests']) ? 1 : 0,
@@ -787,19 +789,49 @@ class AmateurTelsizIlanVitrini {
 
         global $wpdb;
         $user_id = get_current_user_id();
-        $table_name = $wpdb->prefix . 'amator_search_alerts';
+        $table_name = $wpdb->prefix . 'amator_telsiz_uyarılar';
+
+        // Tabloyu mevcut değilse oluştur (şema uyumu için)
+        $this->create_search_alerts_table();
 
         // Tablo yoksa boş döndür
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) != $table_name) {
             wp_send_json_success(array());
         }
 
         $alerts = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM $table_name WHERE user_id = %d ORDER BY created_at DESC",
+            "SELECT * FROM `{$table_name}` WHERE user_id = %d ORDER BY created_at DESC",
             $user_id
         ), ARRAY_A);
 
+        if (!empty($wpdb->last_error)) {
+            error_log('[ATIV] load_search_alerts DB error: ' . $wpdb->last_error . ' | Query: ' . $wpdb->last_query);
+            wp_send_json_error('Veritabanı hatası: ' . $wpdb->last_error);
+        }
+
         wp_send_json_success($alerts ?: array());
+    }
+
+    public function ajax_get_sellers() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'amator_ilanlar';
+
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            wp_send_json_success(array());
+        }
+
+        $callsigns = $wpdb->get_col("SELECT DISTINCT callsign FROM $table_name WHERE callsign IS NOT NULL AND callsign <> '' ORDER BY callsign ASC");
+
+        if ($wpdb->last_error) {
+            wp_send_json_error('Veritabanı hatası: ' . $wpdb->last_error);
+        }
+
+        $data = array_map(function($c) { return array('callsign' => $c); }, $callsigns ?: array());
+        wp_send_json_success($data);
     }
 
     public function ajax_save_search_alert() {
@@ -811,7 +843,7 @@ class AmateurTelsizIlanVitrini {
 
         global $wpdb;
         $user_id = get_current_user_id();
-        $table_name = $wpdb->prefix . 'amator_search_alerts';
+        $table_name = $wpdb->prefix . 'amator_telsiz_uyarılar';
 
         // Tablo yoksa oluştur
         $this->create_search_alerts_table();
@@ -821,17 +853,68 @@ class AmateurTelsizIlanVitrini {
             'alert_name' => sanitize_text_field($_POST['alert_name'] ?? ''),
             'category' => sanitize_text_field($_POST['category'] ?? ''),
             'condition' => sanitize_text_field($_POST['condition'] ?? ''),
-            'brand' => sanitize_text_field($_POST['brand'] ?? ''),
             'location' => sanitize_text_field($_POST['location'] ?? ''),
             'min_price' => intval($_POST['min_price'] ?? 0),
             'max_price' => intval($_POST['max_price'] ?? 0),
+            'keyword' => sanitize_text_field($_POST['keyword'] ?? ''),
+            'seller_callsign' => sanitize_text_field($_POST['seller_callsign'] ?? ''),
+            'all_listings' => intval($_POST['all_listings'] ?? 0),
             'frequency' => sanitize_text_field($_POST['frequency'] ?? 'immediate'),
             'created_at' => current_time('mysql')
-        ), array('%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s'));
+        ), array('%d', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%d', '%s', '%s'));
 
         if ($result) {
             wp_send_json_success('Arama uyarısı oluşturuldu');
         } else {
+            error_log('[ATIV] save_search_alert DB error: ' . $wpdb->last_error);
+            wp_send_json_error('Veritabanı hatası: ' . $wpdb->last_error);
+        }
+    }
+
+    public function ajax_update_search_alert() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        check_ajax_referer('ativ_profile_nonce', '_wpnonce');
+
+        global $wpdb;
+        $user_id = get_current_user_id();
+        $alert_id = intval($_POST['alert_id'] ?? 0);
+        if (!$alert_id) {
+            wp_send_json_error('Geçersiz uyarı');
+        }
+
+        $table_name = $wpdb->prefix . 'amator_telsiz_uyarılar';
+
+        // Tablo yoksa oluştur
+        $this->create_search_alerts_table();
+
+        $data = array(
+            'alert_name' => sanitize_text_field($_POST['alert_name'] ?? ''),
+            'category' => sanitize_text_field($_POST['category'] ?? ''),
+            'condition' => sanitize_text_field($_POST['condition'] ?? ''),
+            'location' => sanitize_text_field($_POST['location'] ?? ''),
+            'min_price' => intval($_POST['min_price'] ?? 0),
+            'max_price' => intval($_POST['max_price'] ?? 0),
+            'keyword' => sanitize_text_field($_POST['keyword'] ?? ''),
+            'seller_callsign' => sanitize_text_field($_POST['seller_callsign'] ?? ''),
+            'all_listings' => intval($_POST['all_listings'] ?? 0),
+            'frequency' => sanitize_text_field($_POST['frequency'] ?? 'immediate')
+        );
+
+        $updated = $wpdb->update(
+            $table_name,
+            $data,
+            array('id' => $alert_id, 'user_id' => $user_id),
+            array('%s','%s','%s','%s','%d','%d','%s','%s','%d','%s'),
+            array('%d','%d')
+        );
+
+        if ($updated !== false) {
+            wp_send_json_success('Arama uyarısı güncellendi');
+        } else {
+            error_log('[ATIV] update_search_alert DB error: ' . $wpdb->last_error);
             wp_send_json_error('Veritabanı hatası: ' . $wpdb->last_error);
         }
     }
@@ -846,7 +929,7 @@ class AmateurTelsizIlanVitrini {
         global $wpdb;
         $user_id = get_current_user_id();
         $alert_id = intval($_POST['alert_id'] ?? 0);
-        $table_name = $wpdb->prefix . 'amator_search_alerts';
+        $table_name = $wpdb->prefix . 'amator_telsiz_uyarılar';
 
         $wpdb->delete($table_name, array(
             'id' => $alert_id,
@@ -1053,23 +1136,25 @@ class AmateurTelsizIlanVitrini {
 
     private function create_search_alerts_table() {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'amator_search_alerts';
+        $table_name = $wpdb->prefix . 'amator_telsiz_uyarılar';
         $charset_collate = $wpdb->get_charset_collate();
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+        if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table_name)) == $table_name) {
             return;
         }
 
-        $sql = "CREATE TABLE $table_name (
+        $sql = "CREATE TABLE `{$table_name}` (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             user_id bigint(20) NOT NULL,
             alert_name varchar(255) NOT NULL,
             category varchar(100),
-            condition varchar(100),
-            brand varchar(255),
+            `condition` varchar(100),
             location varchar(255),
             min_price int(11) DEFAULT 0,
             max_price int(11) DEFAULT 0,
+            keyword varchar(255),
+            seller_callsign varchar(100),
+            all_listings tinyint(1) DEFAULT 0,
             frequency varchar(20) DEFAULT 'immediate',
             created_at datetime DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
@@ -1078,14 +1163,41 @@ class AmateurTelsizIlanVitrini {
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
+
+        // Eksik kolonları ekle (güncelleme senaryosu)
+        $cols = $wpdb->get_results("SHOW COLUMNS FROM `{$table_name}`", ARRAY_A);
+        $colNames = array_column($cols, 'Field');
+        if (!in_array('keyword', $colNames, true)) {
+            $wpdb->query("ALTER TABLE `{$table_name}` ADD keyword varchar(255) NULL AFTER max_price");
+        }
+        if (!in_array('seller_callsign', $colNames, true)) {
+            $wpdb->query("ALTER TABLE `{$table_name}` ADD seller_callsign varchar(100) NULL AFTER keyword");
+        }
+        if (!in_array('all_listings', $colNames, true)) {
+            $wpdb->query("ALTER TABLE `{$table_name}` ADD all_listings tinyint(1) DEFAULT 0 AFTER seller_callsign");
+        }
+        if (in_array('condition', $colNames, true)) {
+            // Backtick reserved word by renaming and restoring
+            $wpdb->query("ALTER TABLE `{$table_name}` CHANGE `condition` `condition` varchar(100) NULL");
+        }
     }
     
     private function create_email_alerts_table() {
         global $wpdb;
-        $table_name = $wpdb->prefix . 'amator_email_alerts';
+        $table_name = $wpdb->prefix . 'amator_bitlik_eposta_uyarılari';
+        $old_table_name = $wpdb->prefix . 'amator_email_alerts';
         $charset_collate = $wpdb->get_charset_collate();
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+        $has_new = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name));
+        $has_old = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $old_table_name));
+
+        // Eski tablo varsa ve yeni yoksa adı değiştir
+        if (!$has_new && $has_old) {
+            $wpdb->query("RENAME TABLE `{$old_table_name}` TO `{$table_name}`");
+            $has_new = $table_name;
+        }
+
+        if ($has_new) {
             return;
         }
 
