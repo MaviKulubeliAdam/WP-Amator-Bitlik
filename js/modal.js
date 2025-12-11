@@ -463,9 +463,37 @@ function showLoginRequiredModal() {
 }
 
 /**
+ * Kullanıcının çağrı işaretini veritabanından yükler ve form alanını doldurur
+ */
+async function loadUserCallsign() {
+  try {
+    const formData = new FormData();
+    formData.append('action', 'get_user_callsign');
+    
+    const response = await fetch(ativ_ajax.url, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.success && result.data && result.data.callsign) {
+      const callsignInput = document.getElementById('formCallsign');
+      if (callsignInput) {
+        callsignInput.value = result.data.callsign;
+      }
+    } else {
+      console.warn('Çağrı işareti yüklenemedi:', result);
+    }
+  } catch (error) {
+    console.error('Çağrı işareti yükleme hatası:', error);
+  }
+}
+
+/**
  * Yeni ilan ekleme modalını açar
  */
-function openAddListingModal() {
+async function openAddListingModal() {
   // Giriş yapmamış kullanıcılar için login modalı göster
   if (!ativ_ajax.is_user_logged_in) {
     showLoginRequiredModal();
@@ -473,7 +501,7 @@ function openAddListingModal() {
   }
   
   // Kullanıcının yasaklı olup olmadığını kontrol et
-  checkUserBanStatus().then(banData => {
+  checkUserBanStatus().then(async banData => {
     if (banData.is_banned) {
       showBannedUserModal(banData.ban_reason, banData.banned_at);
       return;
@@ -485,6 +513,10 @@ function openAddListingModal() {
     document.body.style.overflow = 'hidden';
     document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
     document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
+    
+    // Kullanıcının çağrı işaretini veritabanından al ve otomatik doldur
+    await loadUserCallsign();
+    
     updatePreview();
     
     // Ülke kodlarını doldur (varsayılan Türkiye)
@@ -496,7 +528,7 @@ function openAddListingModal() {
     // Kategori ve durum dropdown'larını ayarla
     setupCategoryDropdown();
     setupConditionDropdown();
-  }).catch(error => {
+  }).catch(async error => {
     console.error('Ban kontrolü hatası:', error);
     // Hata olsa bile devam et
     editingListing = null;
@@ -504,6 +536,10 @@ function openAddListingModal() {
     document.body.style.overflow = 'hidden';
     document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
     document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
+    
+    // Kullanıcının çağrı işaretini veritabanından al ve otomatik doldur
+    await loadUserCallsign();
+    
     updatePreview();
     populateCountryCodes('+90');
     loadCities();
@@ -549,7 +585,10 @@ async function openEditListingModal(listingOrId) {
   document.getElementById('formPrice').value = listing.price || '';
   document.getElementById('formCurrency').value = listing.currency || 'TRY';
   document.getElementById('formDescription').value = listing.description || '';
-  document.getElementById('formCallsign').value = listing.callsign || '';
+  
+  // Çağrı işaretini veritabanından al (ilan üzerindeki değil, kullanıcı tablosundaki)
+  await loadUserCallsign();
+  
   document.getElementById('formSellerName').value = listing.seller_name || '';
   document.getElementById('formLocation').value = listing.location || '';
   document.getElementById('formEmail').value = listing.seller_email || '';
