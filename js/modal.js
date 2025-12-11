@@ -525,9 +525,6 @@ function openAddListingModal() {
     // Kullanıcı profil bilgilerini yükle (satıcı bilgileri için)
     loadUserProfileData();
     
-    // Ülke kodlarını doldur (varsayılan Türkiye)
-    populateCountryCodes('+90');
-    
     // Şehir listesini yükle
     loadCities();
     
@@ -544,7 +541,6 @@ function openAddListingModal() {
     document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
     updatePreview();
     loadUserProfileData();
-    populateCountryCodes('+90');
     loadCities();
     setupCategoryDropdown();
     setupConditionDropdown();
