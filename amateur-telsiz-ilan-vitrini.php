@@ -262,9 +262,10 @@ class AmateurTelsizIlanVitrini {
         add_filter('query_vars', array($this, 'add_query_vars'));
         add_filter('template_include', array($this, 'load_listing_detail_template'));
         add_filter('wp_title', array($this, 'set_listing_detail_title'), 10, 2);
-        add_filter('document_title_parts', array($this, 'set_listing_detail_title_parts'));
-        add_filter('pre_get_document_title', array($this, 'set_listing_detail_pre_title'), 1, 1);
-        add_filter('wpseo_title', array($this, 'set_listing_detail_wpseo_title'), 10, 1);
+        add_filter('document_title_parts', array($this, 'set_listing_detail_title_parts'), 999);
+        add_filter('pre_get_document_title', array($this, 'set_listing_detail_pre_title'), 999);
+        add_filter('wpseo_title', array($this, 'set_listing_detail_wpseo_title'), 999);
+        add_filter('aioseo_title', array($this, 'set_listing_detail_aioseo_title'), 999);
     }
     
     /**
@@ -395,7 +396,7 @@ class AmateurTelsizIlanVitrini {
     public function set_listing_detail_title($title, $sep = '') {
         $listing_title = $this->get_listing_title_from_request();
         if ($listing_title) {
-            return $listing_title . ' ' . $sep . ' ' . get_bloginfo('name');
+            return $listing_title . ' | Amatör Bitlik';
         }
         return $title;
     }
@@ -407,6 +408,8 @@ class AmateurTelsizIlanVitrini {
         $listing_title = $this->get_listing_title_from_request();
         if ($listing_title) {
             $title_parts['title'] = $listing_title;
+            $title_parts['site'] = 'Amatör Bitlik';
+            $title_parts['tagline'] = '';
         }
         return $title_parts;
     }
@@ -416,7 +419,7 @@ class AmateurTelsizIlanVitrini {
      */
     public function set_listing_detail_pre_title($title) {
         $listing_title = $this->get_listing_title_from_request();
-        return $listing_title ?: $title;
+        return $listing_title ? ($listing_title . ' | Amatör Bitlik') : $title;
     }
 
     /**
@@ -424,7 +427,15 @@ class AmateurTelsizIlanVitrini {
      */
     public function set_listing_detail_wpseo_title($title) {
         $listing_title = $this->get_listing_title_from_request();
-        return $listing_title ?: $title;
+        return $listing_title ? ($listing_title . ' | Amatör Bitlik') : $title;
+    }
+
+    /**
+     * All in One SEO title override
+     */
+    public function set_listing_detail_aioseo_title($title) {
+        $listing_title = $this->get_listing_title_from_request();
+        return $listing_title ? ($listing_title . ' | Amatör Bitlik') : $title;
     }
 
     /**
