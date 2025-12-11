@@ -463,6 +463,41 @@ function showLoginRequiredModal() {
 }
 
 /**
+ * Kullanıcı profil bilgilerini yükler (satıcı bilgileri için)
+ */
+async function loadUserProfileData() {
+  try {
+    const formData = new FormData();
+    formData.append('action', 'ativ_ajax');
+    formData.append('action_type', 'get_user_profile_for_listing');
+    formData.append('nonce', ativ_ajax.nonce);
+    
+    const response = await fetch(ativ_ajax.url, {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.success && result.data) {
+      // Satıcı bilgilerini hidden alanlara doldur
+      document.getElementById('formSellerName').value = result.data.name || '';
+      document.getElementById('formLocation').value = result.data.location || '';
+      document.getElementById('formEmail').value = result.data.email || '';
+      document.getElementById('formCountryCode').value = result.data.country_code || '+90';
+      document.getElementById('formPhone').value = result.data.phone || '';
+      
+      // Çağrı işaretini de set et
+      if (result.data.callsign) {
+        document.getElementById('formCallsign').value = result.data.callsign;
+      }
+    }
+  } catch (error) {
+    console.error('Profil bilgileri yüklenirken hata:', error);
+  }
+}
+
+/**
  * Yeni ilan ekleme modalını açar
  */
 function openAddListingModal() {
@@ -487,6 +522,9 @@ function openAddListingModal() {
     document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
     updatePreview();
     
+    // Kullanıcı profil bilgilerini yükle (satıcı bilgileri için)
+    loadUserProfileData();
+    
     // Ülke kodlarını doldur (varsayılan Türkiye)
     populateCountryCodes('+90');
     
@@ -505,6 +543,7 @@ function openAddListingModal() {
     document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
     document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
     updatePreview();
+    loadUserProfileData();
     populateCountryCodes('+90');
     loadCities();
     setupCategoryDropdown();
