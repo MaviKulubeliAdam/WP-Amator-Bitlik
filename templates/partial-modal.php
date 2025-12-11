@@ -21,7 +21,7 @@
    </div>
    <div class="form-section">
     <form id="addListingForm">
-     <div class="form-group"><label for="formTitle">İlan Başlığı *</label> <input type="text" id="formTitle" required placeholder="Örn: Yaesu FT-991A HF/VHF/UHF"></div>
+    <div class="form-group"><label for="formTitle">İlan Başlığı *</label> <input type="text" id="formTitle" required maxlength="42" placeholder="Örn: Yaesu FT-991A HF/VHF/UHF"></div>
      
      <div class="form-group category-select-wrapper">
       <label for="formCategory">Kategori *</label>

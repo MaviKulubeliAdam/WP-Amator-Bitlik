@@ -2,6 +2,8 @@
  * Modal.js - Modal, form, detay paneli ve görsel işlemleri
  */
 
+const MAX_TITLE_LENGTH = 42;
+
 /**
  * Ülke telefon kodları ve bayrakları
  */
@@ -302,9 +304,21 @@ function setupForm() {
     const input = document.getElementById(id);
     input.addEventListener('input', (e) => {
       const start = e.target.selectionStart;
-      const value = e.target.value;
+      let value = e.target.value;
+
+      if (id === 'formTitle' && value.length > MAX_TITLE_LENGTH) {
+        value = value.slice(0, MAX_TITLE_LENGTH);
+      }
+
       if (value.length > 0) {
-        e.target.value = value.charAt(0).toUpperCase() + value.slice(1);
+        value = value.charAt(0).toUpperCase() + value.slice(1);
+      }
+
+      if (value !== e.target.value) {
+        const caret = Math.min(start, value.length);
+        e.target.value = value;
+        e.target.setSelectionRange(caret, caret);
+      } else {
         e.target.setSelectionRange(start, start);
       }
       if (id === 'formTitle' || id === 'formCallsign' || id === 'formPrice') {
@@ -528,7 +542,8 @@ async function openEditListingModal(listingOrId) {
   isEditingRejectedListing = (listing.status === 'rejected' || listing.status === 'approved');
 
   // Populate modal fields
-  document.getElementById('formTitle').value = listing.title || '';
+  const safeTitle = (listing.title || '').slice(0, MAX_TITLE_LENGTH);
+  document.getElementById('formTitle').value = safeTitle;
   document.getElementById('formBrand').value = listing.brand || '';
   document.getElementById('formModel').value = listing.model || '';
   document.getElementById('formPrice').value = listing.price || '';
@@ -840,6 +855,8 @@ async function handleFormSubmit(e) {
   const submitBtn = document.getElementById('formSubmitBtn');
   const messageDiv = document.getElementById('formMessage');
   const termsCheckbox = document.getElementById('formTermsCheckbox');
+  const titleInput = document.getElementById('formTitle');
+  const trimmedTitle = titleInput.value.trim();
   
   // Sözleşme kontrolü
   if (!termsCheckbox.checked) {
@@ -849,6 +866,20 @@ async function handleFormSubmit(e) {
       messageDiv.innerHTML = '';
     }, 3000);
     return;
+  }
+
+  // Başlık uzunluğu kontrolü
+  if (trimmedTitle.length > MAX_TITLE_LENGTH) {
+    titleInput.setCustomValidity(`İlan başlığı en fazla ${MAX_TITLE_LENGTH} karakter olabilir.`);
+    titleInput.reportValidity();
+    messageDiv.innerHTML = `<div class="error-message">İlan başlığı en fazla ${MAX_TITLE_LENGTH} karakter olabilir.</div>`;
+    setTimeout(() => {
+      messageDiv.innerHTML = '';
+      titleInput.setCustomValidity('');
+    }, 3000);
+    return;
+  } else {
+    titleInput.setCustomValidity('');
   }
   
   submitBtn.disabled = true;
@@ -867,7 +898,7 @@ async function handleFormSubmit(e) {
   }
 
   const listingData = {
-    title: document.getElementById('formTitle').value.trim(),
+    title: trimmedTitle,
     category: document.getElementById('formCategoryValue')?.value || document.getElementById('formCategory').value,
     brand: document.getElementById('formBrand').value.trim(),
     model: document.getElementById('formModel').value.trim(),
@@ -1922,6 +1953,7 @@ function createDetailSections(listing) {
       <div class="detail-actions" style="display:flex; gap:12px; margin-top:16px; flex-wrap:wrap;">
         ${waLink ? `<a href="${waLink}" target="_blank" rel="noopener" class="contact-btn whatsapp" style="display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:8px; background:#25D366; color:#fff; text-decoration:none; font-weight:600;">💬 WhatsApp'tan Yaz</a>` : ''}
         ${mailLink ? `<a href="${mailLink}" class="contact-btn email" style="display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:8px; background:#667eea; color:#fff; text-decoration:none; font-weight:600;">✉️ E-posta Gönder</a>` : ''}
+        <button onclick="openShareModalForListing('${escapeHtml(listing.title)}', '${escapeHtml(String(listing.price))}', '${escapeHtml(listing.currency || 'TRY')}', '${escapeHtml(listing.category_name || '')}', ${listing.id})" class="contact-btn share" style="display:inline-flex; align-items:center; gap:8px; padding:10px 14px; border-radius:8px; background:#8b5cf6; color:#fff; border:none; cursor:pointer; font-weight:600;">🔗 İlanı Paylaş</button>
       </div>
     </div>
   `;
@@ -2869,3 +2901,96 @@ function showBannedUserModal(banReason, bannedAt) {
   console.log('[DEBUG] Modal computed style:', window.getComputedStyle(modal).display);
 }
 
+/**
+ * İlan paylaşım modalını açar (galeri modalından)
+ */
+window.openShareModalForListing = function(title, price, currency, category, listingId) {
+  // Modal varsa kaldır
+  const existingModal = document.getElementById('shareModalGallery');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  const shareUrl = `${window.location.origin}/ilan/${listingId}`;
+  const shareText = `${title} - ${price} ${currency}${category ? ' | ' + category : ''}`;
+  
+  const modal = document.createElement('div');
+  modal.id = 'shareModalGallery';
+  modal.className = 'share-modal active';
+  modal.style.zIndex = '9999999'; // Detay modalının üstünde
+  
+  modal.innerHTML = `
+    <div class="share-modal-content">
+      <div class="share-modal-header">
+        <h3 class="share-modal-title">İlanı Paylaş</h3>
+        <button class="share-modal-close" onclick="closeShareModalGallery()">&times;</button>
+      </div>
+      <div class="share-buttons">
+        <button class="share-btn share-btn-whatsapp" onclick="shareToWhatsAppGallery('${shareText.replace(/'/g, "\\'")}', '${shareUrl}')">
+          📱 WhatsApp
+        </button>
+        <button class="share-btn share-btn-telegram" onclick="shareToTelegramGallery('${shareText.replace(/'/g, "\\'")}', '${shareUrl}')">
+          ✈️ Telegram
+        </button>
+        <button class="share-btn share-btn-messenger" onclick="shareToMessengerGallery('${shareUrl}')">
+          💬 Messenger
+        </button>
+        <button class="share-btn share-btn-copy" onclick="copyListingUrlGallery('${shareText.replace(/'/g, "\\'")}', '${shareUrl}')">
+          🔗 URL Kopyala
+        </button>
+      </div>
+      <div class="share-url-box">
+        ${shareText}<br>
+        ${shareUrl}
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Overlay'e tıklandığında kapat
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) {
+      closeShareModalGallery();
+    }
+  });
+};
+
+window.closeShareModalGallery = function() {
+  const modal = document.getElementById('shareModalGallery');
+  if (modal) {
+    modal.remove();
+  }
+};
+
+window.shareToWhatsAppGallery = function(text, url) {
+  const whatsappUrl = 'https://wa.me/?text=' + encodeURIComponent(text + '\n' + url);
+  window.open(whatsappUrl, '_blank');
+};
+
+window.shareToTelegramGallery = function(text, url) {
+  const telegramUrl = 'https://t.me/share/url?url=' + encodeURIComponent(url) + '&text=' + encodeURIComponent(text);
+  window.open(telegramUrl, '_blank');
+};
+
+window.shareToMessengerGallery = function(url) {
+  const messengerUrl = 'fb-messenger://share?link=' + encodeURIComponent(url);
+  window.open(messengerUrl, '_blank');
+};
+
+window.copyListingUrlGallery = function(text, url) {
+  const fullText = text + '\n' + url;
+  
+  navigator.clipboard.writeText(fullText).then(() => {
+    const copyBtn = document.querySelector('#shareModalGallery .share-btn-copy');
+    if (copyBtn) {
+      const originalText = copyBtn.innerHTML;
+      copyBtn.innerHTML = '✓ Kopyalandı!';
+      copyBtn.style.background = '#10b981';
+      setTimeout(() => {
+        copyBtn.innerHTML = originalText;
+        copyBtn.style.background = '#6b7280';
+      }, 2000);
+    }
+  });
+};

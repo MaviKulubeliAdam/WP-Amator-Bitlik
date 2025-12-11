@@ -113,6 +113,24 @@ if ($listing->currency != 'TRY' && isset($exchange_rates[$listing->currency])) {
     .btn-primary:hover { background: #5568d3; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102,126,234,0.4); }
     .btn-whatsapp { background: #25D366; color: #fff; }
     .btn-whatsapp:hover { background: #1ea853; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(37,211,102,0.4); }
+    .btn-share { background: #8b5cf6; color: #fff; }
+    .btn-share:hover { background: #7c3aed; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(139,92,246,0.4); }
+
+    .share-modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); animation: fadeIn 0.3s; }
+    .share-modal.active { display: flex; align-items: center; justify-content: center; }
+    .share-modal-content { background: #fff; border-radius: 16px; padding: 32px; max-width: 500px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+    .share-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .share-modal-title { font-size: 24px; font-weight: 700; color: #111827; }
+    .share-modal-close { background: none; border: none; font-size: 32px; color: #9ca3af; cursor: pointer; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; transition: color 0.3s; }
+    .share-modal-close:hover { color: #111827; }
+    .share-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 24px; }
+    .share-btn { padding: 16px; border-radius: 12px; border: none; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.3s; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; }
+    .share-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+    .share-btn-whatsapp { background: #25D366; }
+    .share-btn-telegram { background: #0088cc; }
+    .share-btn-messenger { background: #0084ff; }
+    .share-btn-copy { background: #6b7280; grid-column: span 2; }
+    .share-url-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; font-size: 13px; color: #6b7280; word-break: break-all; margin-top: 16px; }
 
     .listing-main-content { background: #fff; border-radius: 16px; padding: 32px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 40px; }
     .listing-title { font-size: 32px; font-weight: 700; color: #111827; margin-bottom: 12px; line-height: 1.2; }
@@ -280,6 +298,7 @@ if ($listing->currency != 'TRY' && isset($exchange_rates[$listing->currency])) {
                     ?>
                     <a href="<?php echo esc_url($whatsapp_url); ?>" class="btn btn-whatsapp" target="_blank">💬 WhatsApp</a>
                     <?php endif; ?>
+                    <button class="btn btn-share" onclick="openShareModal()">🔗 İlanı Paylaş</button>
                 </div>
             </div>
         </div>
@@ -447,6 +466,88 @@ if ($listing->currency != 'TRY' && isset($exchange_rates[$listing->currency])) {
             lightboxCounter.textContent = lightboxCurrentIndex + 1;
         }
     }
+
+    // Share modal functions
+    function openShareModal() {
+        document.getElementById('shareModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeShareModal() {
+        document.getElementById('shareModal').classList.remove('active');
+        document.body.style.overflow = 'auto';
+    }
+
+    document.getElementById('shareModal')?.addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeShareModal();
+        }
+    });
+
+    function shareToWhatsApp() {
+        const shareUrl = '<?php echo esc_js(add_query_arg(['ilan_id' => $listing->id], home_url('ilan-detay'))); ?>';
+        const shareText = '<?php echo esc_js($listing->title . ' - ' . number_format($listing->price, 2) . ' ' . $listing->currency . ' | ' . $listing->category_name); ?>';
+        const whatsappUrl = 'https://wa.me/?text=' + encodeURIComponent(shareText + '\n' + shareUrl);
+        window.open(whatsappUrl, '_blank');
+    }
+
+    function shareToTelegram() {
+        const shareUrl = '<?php echo esc_js(add_query_arg(['ilan_id' => $listing->id], home_url('ilan-detay'))); ?>';
+        const shareText = '<?php echo esc_js($listing->title . ' - ' . number_format($listing->price, 2) . ' ' . $listing->currency . ' | ' . $listing->category_name); ?>';
+        const telegramUrl = 'https://t.me/share/url?url=' + encodeURIComponent(shareUrl) + '&text=' + encodeURIComponent(shareText);
+        window.open(telegramUrl, '_blank');
+    }
+
+    function shareToMessenger() {
+        const shareUrl = '<?php echo esc_js(add_query_arg(['ilan_id' => $listing->id], home_url('ilan-detay'))); ?>';
+        const messengerUrl = 'fb-messenger://share?link=' + encodeURIComponent(shareUrl);
+        window.open(messengerUrl, '_blank');
+    }
+
+    function copyListingUrl() {
+        const shareUrl = '<?php echo esc_js(add_query_arg(['ilan_id' => $listing->id], home_url('ilan-detay'))); ?>';
+        const shareText = '<?php echo esc_js($listing->title . ' - ' . number_format($listing->price, 2) . ' ' . $listing->currency); ?>';
+        const fullText = shareText + '\n' + shareUrl;
+        
+        navigator.clipboard.writeText(fullText).then(() => {
+            const copyBtn = document.querySelector('.share-btn-copy');
+            const originalText = copyBtn.innerHTML;
+            copyBtn.innerHTML = '✓ Kopyalandı!';
+            copyBtn.style.background = '#10b981';
+            setTimeout(() => {
+                copyBtn.innerHTML = originalText;
+                copyBtn.style.background = '#6b7280';
+            }, 2000);
+        });
+    }
 </script>
+
+<!-- Share Modal -->
+<div id="shareModal" class="share-modal">
+    <div class="share-modal-content">
+        <div class="share-modal-header">
+            <h3 class="share-modal-title">İlanı Paylaş</h3>
+            <button class="share-modal-close" onclick="closeShareModal()">&times;</button>
+        </div>
+        <div class="share-buttons">
+            <button class="share-btn share-btn-whatsapp" onclick="shareToWhatsApp()">
+                📱 WhatsApp
+            </button>
+            <button class="share-btn share-btn-telegram" onclick="shareToTelegram()">
+                ✈️ Telegram
+            </button>
+            <button class="share-btn share-btn-messenger" onclick="shareToMessenger()">
+                💬 Messenger
+            </button>
+            <button class="share-btn share-btn-copy" onclick="copyListingUrl()">
+                🔗 URL Kopyala
+            </button>
+        </div>
+        <div class="share-url-box">
+            <?php echo esc_html($listing->title . ' - ' . number_format($listing->price, 2) . ' ' . $listing->currency); ?><br>
+            <?php echo esc_url(add_query_arg(['ilan_id' => $listing->id], home_url('ilan-detay'))); ?>
+        </div>
+    </div>
+</div>
 
 <?php get_footer(); ?>
