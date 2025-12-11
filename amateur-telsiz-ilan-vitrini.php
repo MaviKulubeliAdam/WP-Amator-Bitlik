@@ -888,6 +888,95 @@ class AmateurTelsizIlanVitrini {
         wp_send_json_success('Profil güncellendi');
     }
 
+    /**
+     * Kullanıcı profil bilgilerini getir (ilan ekleme için)
+     * Bu method satıcı bilgilerini wp_amator_bitlik_kullanıcılar tablosundan çeker
+     */
+    public function get_user_profile_for_listing() {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+
+        $user_id = get_current_user_id();
+        $current_user = get_user_by('id', $user_id);
+
+        global $wpdb;
+        $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        
+        // Veritabanından kullanıcı bilgilerini çek
+        $db_user = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $users_table WHERE user_id = %d",
+            $user_id
+        ));
+
+        // Çağrı işareti: önce DB'den, yoksa username'den
+        $callsign = '';
+        if ($db_user && !empty($db_user->callsign)) {
+            $callsign = $db_user->callsign;
+        } else {
+            $callsign = $current_user->user_login;
+        }
+        $callsign = strtoupper(str_replace(' ', '', $callsign));
+
+        // Telefon numarasını parse et (alan kodu ve numara olarak ayır)
+        $phone = '';
+        $country_code = '+90'; // Varsayılan
+        
+        if ($db_user && !empty($db_user->phone)) {
+            $phone_full = $db_user->phone;
+        } else {
+            $phone_full = '';
+        }
+        
+        // Telefonu parse et: +90 548 222 99 89 formatından alan kodu ve numarayı ayır
+        if (!empty($phone_full)) {
+            // Tüm boşlukları ve tire işaretlerini temizle
+            $phone_clean = preg_replace('/[\s\-]/', '', $phone_full);
+            
+            // + ile başlıyorsa alan kodunu ayır
+            if (strpos($phone_clean, '+') === 0) {
+                // Türkiye için +90
+                if (strpos($phone_clean, '+90') === 0) {
+                    $country_code = '+90';
+                    $phone = substr($phone_clean, 3);
+                }
+                // ABD/Kanada için +1
+                else if (strpos($phone_clean, '+1') === 0) {
+                    $country_code = '+1';
+                    $phone = substr($phone_clean, 2);
+                }
+                // Diğer kodlar için ilk 2-4 karakteri kontrol et
+                else {
+                    preg_match('/^\+(\d{1,4})(.*)$/', $phone_clean, $matches);
+                    if (count($matches) >= 3) {
+                        $country_code = '+' . $matches[1];
+                        $phone = $matches[2];
+                    }
+                }
+            } else {
+                // + yoksa tüm numara phone olarak kabul et
+                $phone = $phone_clean;
+            }
+        }
+
+        // WordPress kullanıcı ad ve soyadını birleştir
+        $wp_full_name = trim($current_user->first_name . ' ' . $current_user->last_name);
+        if (empty($wp_full_name)) {
+            $wp_full_name = $current_user->display_name; // Ad soyad yoksa display_name kullan
+        }
+        
+        $profile_data = array(
+            'name' => $db_user && !empty($db_user->name) ? $db_user->name : $wp_full_name,
+            'email' => $db_user && !empty($db_user->email) ? $db_user->email : $current_user->user_email,
+            'callsign' => $callsign,
+            'phone' => $phone,
+            'country_code' => $country_code,
+            'location' => $db_user && !empty($db_user->location) ? $db_user->location : ''
+        );
+
+        wp_send_json_success($profile_data);
+    }
+
     public function ajax_load_email_alerts() {
         if (!is_user_logged_in()) {
             wp_send_json_error('Giriş yapmalısınız');
@@ -1618,6 +1707,16 @@ class AmateurTelsizIlanVitrini {
         }
     }
     
+    // Kullanıcı profil bilgilerini getir (ilan için)
+    if ($action === 'get_user_profile_for_listing') {
+        if (!is_user_logged_in()) {
+            wp_send_json_error('Giriş yapmalısınız');
+        }
+        
+        $this->get_user_profile_for_listing();
+        return;
+    }
+    
     // Kritik işlemler için oturum ve nonce kontrolü
     $critical_actions = ['save_listing', 'update_listing', 'delete_listing', 'get_user_listings', 'upload_video', 'upload_video_temp', 'delete_video_temp'];
     $public_actions = ['get_listings', 'get_brands', 'get_locations'];
@@ -1820,16 +1919,52 @@ class AmateurTelsizIlanVitrini {
     
     global $wpdb;
     $table_name = $wpdb->prefix . 'amator_ilanlar';
+    $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
     
     $data = $_POST;
     $user_id = get_current_user_id();
+    $current_user = get_user_by('id', $user_id);
     
-    // Gerekli alanları kontrol et
-    $required = ['title', 'category', 'brand', 'model', 'condition', 'price', 'description', 'callsign', 'seller_name', 'location', 'seller_email', 'seller_phone'];
+    // Gerekli alanları kontrol et (satıcı bilgileri artık gerekli değil, otomatik çekilecek)
+    $required = ['title', 'category', 'brand', 'model', 'condition', 'price', 'description', 'callsign'];
     foreach ($required as $field) {
         if (empty($data[$field])) {
             wp_send_json_error("Eksik alan: $field");
         }
+    }
+    
+    // Satıcı bilgilerini veritabanından çek
+    $db_user = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $users_table WHERE user_id = %d",
+        $user_id
+    ));
+    
+    // Satıcı bilgilerini hazırla
+    $seller_name = '';
+    $seller_email = '';
+    $seller_phone = '';
+    $seller_location = '';
+    
+    if ($db_user) {
+        $seller_name = !empty($db_user->name) ? $db_user->name : '';
+        $seller_email = !empty($db_user->email) ? $db_user->email : '';
+        $seller_phone = !empty($db_user->phone) ? $db_user->phone : '';
+        $seller_location = !empty($db_user->location) ? $db_user->location : '';
+    }
+    
+    // Eğer veritabanında yoksa WordPress kullanıcı bilgilerinden al
+    if (empty($seller_name)) {
+        $wp_full_name = trim($current_user->first_name . ' ' . $current_user->last_name);
+        $seller_name = !empty($wp_full_name) ? $wp_full_name : $current_user->display_name;
+    }
+    
+    if (empty($seller_email)) {
+        $seller_email = $current_user->user_email;
+    }
+    
+    // Eğer hala boşsa hata ver
+    if (empty($seller_name) || empty($seller_email)) {
+        wp_send_json_error('Satıcı bilgileri eksik. Lütfen önce profilinizi doldurun.');
     }
     
     $emoji = '📻';
@@ -1859,10 +1994,10 @@ class AmateurTelsizIlanVitrini {
         'video' => $video_url,
         'emoji' => $emoji,
         'callsign' => sanitize_text_field($data['callsign']),
-        'seller_name' => sanitize_text_field($data['seller_name']),
-        'location' => sanitize_text_field($data['location']),
-        'seller_email' => sanitize_email($data['seller_email']),
-        'seller_phone' => sanitize_text_field($data['seller_phone']),
+        'seller_name' => $seller_name,
+        'location' => $seller_location,
+        'seller_email' => $seller_email,
+        'seller_phone' => $seller_phone,
         'status' => 'pending'
     );
     
@@ -2091,6 +2226,12 @@ class AmateurTelsizIlanVitrini {
     
     $data = $_POST;
     
+    // Satıcı bilgilerini veritabanından çek ve güncelle
+    $db_user = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $users_table WHERE user_id = %d",
+        $user_id
+    ));
+    
     // Mevcut görselleri al
     $current_images = $existing_listing['images'] ? json_decode($existing_listing['images'], true) : array();
 
@@ -2103,18 +2244,28 @@ class AmateurTelsizIlanVitrini {
         'model' => 'model',
         'condition' => 'condition',
         'currency' => 'currency',
-        'callsign' => 'callsign',
-        'seller_name' => 'seller_name',
-        'location' => 'location',
-        'seller_phone' => 'seller_phone'
+        'callsign' => 'callsign'
     ];
     foreach ($field_map_text as $post_key => $db_key) {
         if (array_key_exists($post_key, $data)) {
             $update_data[$db_key] = sanitize_text_field($data[$post_key]);
         }
     }
-    if (array_key_exists('seller_email', $data)) {
-        $update_data['seller_email'] = sanitize_email($data['seller_email']);
+    
+    // Satıcı bilgilerini otomatik güncelle (veritabanından)
+    if ($db_user) {
+        if (!empty($db_user->name)) {
+            $update_data['seller_name'] = $db_user->name;
+        }
+        if (!empty($db_user->email)) {
+            $update_data['seller_email'] = $db_user->email;
+        }
+        if (!empty($db_user->phone)) {
+            $update_data['seller_phone'] = $db_user->phone;
+        }
+        if (!empty($db_user->location)) {
+            $update_data['location'] = $db_user->location;
+        }
     }
     if (array_key_exists('price', $data)) {
         $new_price = floatval($data['price']);
