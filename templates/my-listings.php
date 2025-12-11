@@ -104,11 +104,13 @@
   <div class="listings-wrapper">
     <div class="listings-container">
       <div id="myListingsGrid" class="listings-list">
-        <!-- Debug: Toplam <?php echo count($my_listings); ?> ilan bulundu -->
-        <?php if (empty($my_listings)): ?>
+        <!-- Debug: Toplam <?php echo (is_array($my_listings) ? count($my_listings) : 0); ?> ilan bulundu -->
+        <?php if (empty($my_listings) || !is_array($my_listings)): ?>
           <div class="no-results">Henüz ilanınız yok.</div>
         <?php else: ?>
           <?php foreach ($my_listings as $listing):
+            if (!is_array($listing)) continue;
+            
             $image_url = '';
             // images sütunu JSON string olarak gelir
             if (!empty($listing['images'])) {
@@ -116,7 +118,9 @@
               if (is_array($images) && !empty($images)) {
                 $featured_index = intval($listing['featured_image_index'] ?? 0);
                 $featured_img = $images[$featured_index] ?? $images[0] ?? null;
-                if ($featured_img) {
+                if ($featured_img && is_array($featured_img) && isset($featured_img['data'])) {
+                  $image_url = $featured_img['data'];
+                } elseif (is_string($featured_img) && !empty($featured_img)) {
                   // Eğer tam URL ise direkt kullan, değilse dosya adı olarak ele al
                   if (strpos($featured_img, 'http') === 0) {
                     $image_url = $featured_img;

@@ -321,19 +321,13 @@ function setupForm() {
       } else {
         e.target.setSelectionRange(start, start);
       }
-      if (id === 'formTitle' || id === 'formCallsign' || id === 'formPrice') {
+      if (id === 'formTitle' || id === 'formPrice') {
         updatePreview();
       }
     });
   });
 
-  const callsignInput = document.getElementById('formCallsign');
-  callsignInput.addEventListener('input', (e) => {
-    const start = e.target.selectionStart;
-    e.target.value = e.target.value.toUpperCase();
-    e.target.setSelectionRange(start, start);
-    updatePreview();
-  });
+  // Callsign input artık formda yok; preview userCallsign'dan güncellenir
 
   document.getElementById('formCurrency').addEventListener('change', updatePreview);
 
@@ -463,12 +457,18 @@ function showLoginRequiredModal() {
 }
 
 /**
- * Kullanıcının çağrı işaretini veritabanından yükler ve form alanını doldurur
+ * Kullanıcının çağrı işaretini veritabanından yükler
  */
 async function loadUserCallsign() {
   try {
     const formData = new FormData();
-    formData.append('action', 'get_user_callsign');
+    formData.append('action', 'ativ_ajax');
+    formData.append('action_type', 'get_user_callsign');
+    
+    // Critical action için user-specific nonce (her zaman gönder)
+    if (ativ_ajax && ativ_ajax.nonce) {
+      formData.append('nonce', ativ_ajax.nonce);
+    }
     
     const response = await fetch(ativ_ajax.url, {
       method: 'POST',
@@ -478,18 +478,15 @@ async function loadUserCallsign() {
     const result = await response.json();
     
     if (result.success && result.data && result.data.callsign) {
-      const callsignInput = document.getElementById('formCallsign');
-      if (callsignInput) {
-        callsignInput.value = result.data.callsign;
-      }
+      userCallsign = result.data.callsign;
+      return result.data.callsign;
     } else {
-      const errorMessage = result.data && result.data.message 
-        ? result.data.message 
-        : 'Çağrı işareti bilgisi alınamadı';
-      console.warn('Çağrı işareti yükleme başarısız:', errorMessage, result);
+      console.warn('Çağrı işareti yükleme başarısız:', result);
+      return null;
     }
   } catch (error) {
-    console.error('Çağrı işareti yükleme hatası - Ağ veya sunucu sorunu:', error);
+    console.error('Çağrı işareti yüklenirken hata:', error);
+    return null;
   }
 }
 
@@ -537,13 +534,14 @@ async function openAddListingModal() {
     console.error('Ban kontrolü hatası:', error);
     // Hata olsa bile devam et
     editingListing = null;
+    
+    // Kullanıcının çağrı işaretini veritabanından al
+    await loadUserCallsign();
+    
     document.getElementById('addListingModal').style.display = 'flex';
     document.body.style.overflow = 'hidden';
     document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
     document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
-    
-    // Kullanıcının çağrı işaretini veritabanından al ve otomatik doldur
-    await loadUserCallsign();
     
     updatePreview();
     populateCountryCodes('+90');
@@ -593,10 +591,16 @@ async function openEditListingModal(listingOrId) {
   
   // Çağrı işaretini veritabanından al (ilan üzerindeki değil, kullanıcı tablosundaki)
   await loadUserCallsign();
-  
-  document.getElementById('formSellerName').value = listing.seller_name || '';
-  document.getElementById('formLocation').value = listing.location || '';
-  document.getElementById('formEmail').value = listing.seller_email || '';
+  // Edit modda: DB çağrısı başarısızsa, ilandaki callsign'ı fallback olarak kullan
+  if (!userCallsign || userCallsign === '' || userCallsign === null) {
+    if (listing && listing.callsign) {
+      userCallsign = listing.callsign;
+    } else {
+      // Son çare olarak localStorage kullan
+      const cached = localStorage.getItem('userCallsign');
+      if (cached) userCallsign = cached;
+    }
+  }
   
   // Kategori ve durum mapping
   const categoryMapping = {
@@ -757,7 +761,6 @@ function closeAddListingModal() {
  */
 function updatePreview() {
   const title = document.getElementById('formTitle').value.trim();
-  const callsign = document.getElementById('formCallsign').value.trim();
   const price = document.getElementById('formPrice').value;
   const currency = document.getElementById('formCurrency').value;
 
@@ -766,8 +769,14 @@ function updatePreview() {
   const previewPrice = document.getElementById('previewPrice');
   const previewImage = document.getElementById('previewImage');
 
+  // Null guard checks
+  if (!previewTitle || !previewCallsign || !previewPrice) {
+    return;
+  }
+
   previewTitle.innerHTML = title || '<span class="preview-empty-state">İlan başlığı...</span>';
-  previewCallsign.innerHTML = callsign || '<span class="preview-empty-state">Çağrı işareti...</span>';
+  // Global userCallsign variable'ını kullan (form input'u yok)
+  previewCallsign.innerHTML = userCallsign || '<span class="preview-empty-state">Çağrı işareti...</span>';
 
   const currencySymbol = getCurrencySymbol(currency);
   const displayPrice = price && parseFloat(price) > 0 ? parseFloat(price) : 0;
@@ -934,11 +943,13 @@ async function handleFormSubmit(e) {
   // Yükleme overlay'ini göster
   showModalLoading(isEditing ? 'İlan güncelleniyor, lütfen bekleyin...' : 'İlan kaydediliyor, lütfen bekleyin...');
 
-  const callsign = document.getElementById('formCallsign').value.trim();
-  
+  // Callsign formdan değil, DB'den (userCallsign) gelir
   if (!userCallsign) {
-    userCallsign = callsign;
-    localStorage.setItem('userCallsign', callsign);
+    // Güvenlik için tekrar yüklemeyi dene; başarısız olursa localStorage fallback
+    try { await loadUserCallsign(); } catch(e) {}
+    if (!userCallsign) {
+      userCallsign = localStorage.getItem('userCallsign') || '';
+    }
   }
 
   const listingData = {
@@ -2340,10 +2351,7 @@ window.editMyListing = async function(id) {
         document.getElementById('formPrice').value = listing.price || '';
         document.getElementById('formCurrency').value = listing.currency || 'TRY';
         document.getElementById('formDescription').value = listing.description || '';
-        document.getElementById('formCallsign').value = listing.callsign || '';
-        document.getElementById('formSellerName').value = listing.seller_name || '';
-        document.getElementById('formLocation').value = listing.location || '';
-        document.getElementById('formEmail').value = listing.seller_email || '';
+        // Satıcı alanları formdan kaldırıldı; preview ve kayıt DB verisiyle yapılır
         
         // Dropdown'ları kur
         setupCategoryDropdown();

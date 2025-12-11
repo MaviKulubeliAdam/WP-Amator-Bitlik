@@ -701,15 +701,23 @@ class AmateurTelsizIlanVitrini {
         $table_name = $wpdb->prefix . 'amator_ilanlar';
         $user_id = get_current_user_id();
 
-        $my_listings = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY created_at DESC", $user_id), ARRAY_A);
+        $query = $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY created_at DESC", $user_id);
+        $my_listings = $wpdb->get_results($query, ARRAY_A);
 
         if ($wpdb->last_error) {
             return '<div class="ativ-error">Veritabanı hatası: ' . esc_html($wpdb->last_error) . '</div>';
         }
 
+        // Null check
+        if (!is_array($my_listings)) {
+            $my_listings = array();
+        }
+
         // Görselleri URL formatına çevir
         foreach ($my_listings as &$listing) {
-            $listing['images'] = $this->get_listing_images($listing['id'], $listing['images']);
+            if (is_array($listing)) {
+                $listing['images'] = $this->get_listing_images($listing['id'], isset($listing['images']) ? $listing['images'] : null);
+            }
         }
         unset($listing); // Reference'i temizle
 
@@ -1146,7 +1154,7 @@ class AmateurTelsizIlanVitrini {
     }
 
     /**
-     * Kullanıcının çağrı işaretini getir
+     * Kullanıcının çağrı işaretini getir (AJAX)
      */
     public function ajax_get_user_callsign() {
         if (!is_user_logged_in()) {
@@ -1154,9 +1162,33 @@ class AmateurTelsizIlanVitrini {
         }
 
         $user_id = get_current_user_id();
-        $callsign = $this->get_user_callsign($user_id);
+        
+        global $wpdb;
+        $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
+        
+        // Çağrı işaretini DB'den al
+        $user_data = $wpdb->get_row($wpdb->prepare(
+            "SELECT callsign FROM $users_table WHERE user_id = %d",
+            $user_id
+        ), ARRAY_A);
 
-        wp_send_json_success(array('callsign' => $callsign));
+        $callsign = '';
+        
+        if ($user_data && !empty($user_data['callsign'])) {
+            $callsign = strtoupper(str_replace(' ', '', $user_data['callsign']));
+        } else {
+            // DB'de yoksa WordPress username'i kullan
+            $user = get_user_by('id', $user_id);
+            if ($user) {
+                $callsign = strtoupper(str_replace(' ', '', $user->user_login));
+            }
+        }
+
+        if (!empty($callsign)) {
+            wp_send_json_success(array('callsign' => $callsign));
+        } else {
+            wp_send_json_error('Çağrı işareti belirlenemiyor');
+        }
     }
     
     /**
@@ -1166,10 +1198,13 @@ class AmateurTelsizIlanVitrini {
      * @param int $user_id WordPress kullanıcı ID'si
      * @return string Çağrı işareti (büyük harfe çevrilmiş)
      */
-    private function get_user_callsign($user_id) {
+    private function get_user_callsign($user_id = null) {
+        if ($user_id === null) {
+            $user_id = get_current_user_id();
+        }
+
         global $wpdb;
         
-        // Tablo adını güvenli şekilde oluştur
         $users_table = $wpdb->prefix . 'amator_bitlik_kullanıcılar';
         
         // Prepared statement kullanarak sorgu
@@ -1668,17 +1703,18 @@ class AmateurTelsizIlanVitrini {
     }
     
     // Kritik işlemler için oturum ve nonce kontrolü
-    $critical_actions = ['save_listing', 'update_listing', 'delete_listing', 'get_user_listings', 'upload_video', 'upload_video_temp', 'delete_video_temp'];
+    $critical_actions = ['save_listing', 'update_listing', 'delete_listing', 'get_user_listings', 'upload_video', 'upload_video_temp', 'delete_video_temp', 'get_user_callsign'];
     $public_actions = ['get_listings', 'get_brands', 'get_locations'];
     $admin_actions = ['test_update_rates', 'test_send_mail'];
     
     if (in_array($action, $critical_actions)) {
-        // Kritik işlemler için kullanıcıya özel nonce kontrolü
-        if (!wp_verify_nonce($_POST['nonce'], 'ativ_nonce_' . get_current_user_id())) {
-            wp_send_json_error('Güvenlik hatası');
-        }
+        // Kritik işlemler - önce giriş kontrolü
         if (!is_user_logged_in()) {
             wp_send_json_error('Bu işlem için giriş yapmalısınız');
+        }
+        // Sonra kullanıcıya özel nonce kontrolü
+        if (!wp_verify_nonce($_POST['nonce'], 'ativ_nonce_' . get_current_user_id())) {
+            wp_send_json_error('Güvenlik hatası');
         }
     } elseif (in_array($action, $public_actions)) {
         // Herkese açık işlemler için genel nonce kontrolü
@@ -1727,6 +1763,9 @@ class AmateurTelsizIlanVitrini {
             break;
         case 'delete_video_temp':
             $this->delete_video_temp();
+            break;
+        case 'get_user_callsign':
+            $this->ajax_get_user_callsign();
             break;
         case 'test_update_rates':
             $this->test_update_exchange_rates();
