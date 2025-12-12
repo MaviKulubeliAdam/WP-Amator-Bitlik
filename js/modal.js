@@ -255,6 +255,9 @@ function setupModal() {
   // Login Required Modal ayarları
   setupLoginRequiredModal();
   
+  // Profil Incomplete Modal ayarları
+  setupProfileIncompleteModal();
+  
   // My-listings sayfasındaki custom dropdown filtreleri ayarla
   setupMyListingsDropdowns();
 }
@@ -520,6 +523,84 @@ function showLoginRequiredModal() {
   }
 }
 
+/**
+ * Profil bilgilerinin eksiksiz olup olmadığını kontrol eder
+ */
+function checkProfileComplete() {
+  const missingFields = [];
+  
+  if (!userData.callsign || userData.callsign.trim() === '') {
+    missingFields.push('Çağrı İşareti');
+  }
+  if (!userData.name || userData.name.trim() === '') {
+    missingFields.push('Ad Soyad');
+  }
+  if (!userData.email || userData.email.trim() === '') {
+    missingFields.push('E-posta');
+  }
+  if (!userData.phone || userData.phone.trim() === '') {
+    missingFields.push('Telefon Numarası');
+  }
+  if (!userData.location || userData.location.trim() === '') {
+    missingFields.push('Konum (Şehir)');
+  }
+  
+  return {
+    isComplete: missingFields.length === 0,
+    missingFields: missingFields
+  };
+}
+
+/**
+ * Profil eksik modalını gösterir
+ */
+function showProfileIncompleteModal(missingFields) {
+  const modal = document.getElementById('profileIncompleteModal');
+  const missingFieldsList = document.getElementById('missingFieldsList');
+  
+  if (modal && missingFieldsList) {
+    // Eksik alanları listele
+    missingFieldsList.innerHTML = missingFields.map(field => 
+      `<li>❌ ${field}</li>`
+    ).join('');
+    
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+}
+
+/**
+ * Profil eksik modalını kapatır
+ */
+function closeProfileIncompleteModal() {
+  const modal = document.getElementById('profileIncompleteModal');
+  if (modal) {
+    modal.style.display = 'none';
+    document.body.style.overflow = 'auto';
+  }
+}
+
+/**
+ * Profil eksik modal event listener'larını ayarla
+ */
+function setupProfileIncompleteModal() {
+  const modal = document.getElementById('profileIncompleteModal');
+  const closeBtn = document.getElementById('profileIncompleteCloseBtn');
+  const cancelBtn = document.getElementById('profileIncompleteCancelBtn');
+  
+  if (closeBtn) closeBtn.addEventListener('click', closeProfileIncompleteModal);
+  if (cancelBtn) cancelBtn.addEventListener('click', closeProfileIncompleteModal);
+  
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target.id === 'profileIncompleteModal') {
+        closeProfileIncompleteModal();
+      }
+    });
+  }
+}
+
+
 // Global değişkenler - Kullanıcı verileri için
 let userData = {
   callsign: '',
@@ -627,15 +708,22 @@ async function openAddListingModal() {
       return;
     }
     
-    // Yasaklı değilse modalı aç
+    // Kullanıcının tüm bilgilerini veritabanından al
+    await loadUserData();
+    
+    // Profil bilgilerinin eksiksiz olup olmadığını kontrol et
+    const profileCheck = checkProfileComplete();
+    if (!profileCheck.isComplete) {
+      showProfileIncompleteModal(profileCheck.missingFields);
+      return;
+    }
+    
+    // Her şey tamam, modalı aç
     editingListing = null;
     document.getElementById('addListingModal').style.display = 'flex';
     document.body.style.overflow = 'hidden';
     document.querySelector('.modal-header h2').textContent = 'Yeni İlan Ekle';
     document.getElementById('formSubmitBtn').textContent = 'İlanı Yayınla';
-    
-    // Kullanıcının tüm bilgilerini veritabanından al
-    await loadUserData();
     
     // Kullanıcı bilgilerini formdaki alanlara doldur
     populateUserDataFields();

@@ -155,3 +155,38 @@
   </div>
  </div>
 </div>
+<!-- Profil Bilgileri Eksik Modal -->
+<div id="profileIncompleteModal" class="modal-overlay" style="display: none;">
+ <div class="modal-content" style="max-width: 500px;">
+  <div class="modal-header">
+   <h2>📋 Profil Bilgilerinizi Tamamlayın</h2>
+   <button class="modal-close" id="profileIncompleteCloseBtn" aria-label="Kapat">×</button>
+  </div>
+  <div class="modal-body" style="display: block; padding: 30px;">
+   <div style="text-align: center; margin-bottom: 24px;">
+    <div style="font-size: 64px; margin-bottom: 16px;">⚠️</div>
+    <p style="font-size: 16px; color: #666; line-height: 1.6; margin: 0;">
+     İlan ekleyebilmek için <strong>profil bilgilerinizi</strong> tamamlamanız gerekmektedir.
+    </p>
+   </div>
+   
+   <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 16px; border-radius: 8px; margin-bottom: 24px;">
+    <p style="margin: 0 0 12px 0; font-size: 14px; color: #856404; line-height: 1.6;">
+     <strong>Eksik bilgiler:</strong>
+    </p>
+    <ul id="missingFieldsList" style="margin: 0; padding-left: 20px; font-size: 14px; color: #856404; line-height: 1.8;">
+     <!-- JavaScript ile doldurulacak -->
+    </ul>
+   </div>
+   
+   <div style="display: flex; flex-direction: column; gap: 12px;">
+    <a href="/bitlik-profilim" class="btn-submit" style="text-align: center; text-decoration: none; display: block; padding: 14px 24px;">
+     👤 Profil Sayfasına Git
+    </a>
+    <button type="button" class="btn-cancel" id="profileIncompleteCancelBtn">
+     İptal
+    </button>
+   </div>
+  </div>
+ </div>
+</div>

@@ -94,7 +94,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-<script src="<?php echo plugins_url('js/profile.js', dirname(__FILE__)); ?>"></script>
+<script src="<?php echo plugins_url('js/profile.js', dirname(__FILE__)); ?>?ver=1.2.8"></script>
 
 <div id="bitlik-profile-container" class="bitlik-profile-wrapper">
     <style>
