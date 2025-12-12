@@ -540,6 +540,22 @@ class ATIV_REST_API {
         }
         
         $listing_id = $wpdb->insert_id;
+
+        // Yöneticiye e-posta bildirimi gönder (REST ile eklenen ilanlar için)
+        $admin_email = get_option('admin_email');
+        if (!empty($admin_email)) {
+            $subject = 'Yeni İlan Gönderimi - #' . $listing_id;
+            $body = "Merhaba,\n\n" .
+                "Yeni bir ilan gönderildi:\n" .
+                "Başlık: {$insert_data['title']}\n" .
+                "Kategori: {$insert_data['category']}\n" .
+                "Fiyat: {$insert_data['price']} {$insert_data['currency']}\n" .
+                "Satıcı: {$insert_data['seller_name']} ({$insert_data['seller_email']})\n" .
+                "Durum: pending\n\n" .
+                "Panelden inceleyip onaylayabilirsiniz.\n\n" .
+                "Amatör Bitlik";
+            wp_mail($admin_email, $subject, $body);
+        }
         
         // Oluşturulan ilanı döndür
         $new_listing = $wpdb->get_row(
@@ -627,6 +643,20 @@ class ATIV_REST_API {
             $wpdb->prepare("SELECT * FROM $table_name WHERE id = %d", $id),
             ARRAY_A
         );
+
+        // Yöneticiye e-posta bildirimi gönder (REST ile güncellenen ilanlar için)
+        $admin_email = get_option('admin_email');
+        if (!empty($admin_email)) {
+            $subject = 'İlan Güncellendi - #' . $id;
+            $body = "Merhaba,\n\n" .
+                "Bir ilan güncellendi:\n" .
+                "Başlık: {$updated_listing['title']}\n" .
+                "Kategori: {$updated_listing['category']}\n" .
+                "Fiyat: {$updated_listing['price']} {$updated_listing['currency']}\n" .
+                "Satıcı: {$updated_listing['seller_name']} ({$updated_listing['seller_email']})\n\n" .
+                "Amatör Bitlik";
+            wp_mail($admin_email, $subject, $body);
+        }
         
         return new WP_REST_Response(array(
             'success' => true,
@@ -672,6 +702,20 @@ class ATIV_REST_API {
                 'success' => false,
                 'message' => 'İlan silinirken hata oluştu'
             ), 500);
+        }
+
+        // Yöneticiye e-posta bildirimi gönder (REST ile silinen ilanlar için)
+        $admin_email = get_option('admin_email');
+        if (!empty($admin_email)) {
+            $subject = 'İlan Silindi - #' . $id;
+            $body = "Merhaba,\n\n" .
+                "Bir ilan silindi:\n" .
+                "Başlık: {$listing['title']}\n" .
+                "Kategori: {$listing['category']}\n" .
+                "Fiyat: {$listing['price']} {$listing['currency']}\n" .
+                "Satıcı: {$listing['seller_name']} ({$listing['seller_email']})\n\n" .
+                "Amatör Bitlik";
+            wp_mail($admin_email, $subject, $body);
         }
         
         return new WP_REST_Response(array(
