@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Amatör Bitlik
  * Description: Amatör telsiz ekipmanları için ilan panosu yönetim sistemi
- * Version: 1.1.1
+ * Version: 1.1.2
  * Author: TA4AQG - Erkin Mercan
  * Text Domain: amator-bitlik
  * Domain Path: /languages
@@ -11,8 +11,9 @@
 // Plugin constants
 define('ATIV_PLUGIN_PATH', plugin_dir_path(__FILE__));
 define('ATIV_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('ATIV_UPLOAD_DIR', ATIV_PLUGIN_PATH . 'uploads/');
-define('ATIV_UPLOAD_URL', ATIV_PLUGIN_URL . 'uploads/');
+// WordPress uploads dizinini kullan - wp-content/uploads/bitlik-uploads/ (plugin güncellemesinde silinmeyecek)
+define('ATIV_UPLOAD_DIR', wp_upload_dir()['basedir'] . '/bitlik-uploads/');
+define('ATIV_UPLOAD_URL', wp_upload_dir()['baseurl'] . '/bitlik-uploads/');
 
 // Eklenti aktif edildiğinde rewrite rules'ı kaydet
 register_activation_hook(__FILE__, 'ativ_activate_plugin');
@@ -22,6 +23,9 @@ function ativ_activate_plugin() {
     
     // Upload dizinini oluştur
     ativ_create_upload_dir();
+    
+    // Eski uploads klasöründen görselleri migrate et (güncelleme sırasında koruma)
+    ativ_migrate_uploads_from_plugin_dir();
     
     // Rewrite rules'ı ekle ve temizle
     add_rewrite_rule('^ilan/([0-9]+)/?$', 'index.php?listing_detail=$matches[1]', 'top');
@@ -85,6 +89,76 @@ function ativ_create_upload_dir() {
     
     if (!file_exists($htaccess_file)) {
         file_put_contents($htaccess_file, $htaccess_content);
+    }
+}
+
+/**
+ * Eski plugin klasöründen görselleri yeni WordPress uploads klasörüne migrate et
+ * Plugin güncelleme sırasında görsellerin silinmesini önler
+ */
+function ativ_migrate_uploads_from_plugin_dir() {
+    $old_uploads_dir = ATIV_PLUGIN_PATH . 'uploads/';
+    $new_uploads_dir = ATIV_UPLOAD_DIR;
+    $old_uploads_basedir = wp_upload_dir()['basedir'] . '/amator-bitlik/';
+    
+    // 1. Plugin klasöründeki eski uploads/'den migrate et
+    if (is_dir($old_uploads_dir) && file_exists($old_uploads_dir)) {
+        $files = @scandir($old_uploads_dir);
+        
+        if ($files && is_array($files)) {
+            $migrated_count = 0;
+            
+            foreach ($files as $file) {
+                if ($file === '.' || $file === '..') {
+                    continue;
+                }
+                
+                $old_path = $old_uploads_dir . $file;
+                $new_path = $new_uploads_dir . $file;
+                
+                // Dosyayı taşı (aynı dosya yoksa)
+                if (!file_exists($new_path) && is_file($old_path)) {
+                    if (@copy($old_path, $new_path)) {
+                        $migrated_count++;
+                    }
+                }
+            }
+            
+            // Başarı ile migrate edildiyse log'a yaz
+            if ($migrated_count > 0) {
+                error_log('[ATIV] Amator Bitlik: Plugin klasöründen ' . $migrated_count . ' dosya yeni uploads klasörüne migrate edildi');
+            }
+        }
+    }
+    
+    // 2. Eski amator-bitlik/ klasöründen bitlik-uploads/'e migrate et (klasör adı değişti)
+    if (is_dir($old_uploads_basedir) && file_exists($old_uploads_basedir) && $old_uploads_basedir !== $new_uploads_dir) {
+        $files = @scandir($old_uploads_basedir);
+        
+        if ($files && is_array($files)) {
+            $migrated_count = 0;
+            
+            foreach ($files as $file) {
+                if ($file === '.' || $file === '..' || $file === '.htaccess') {
+                    continue;
+                }
+                
+                $old_path = $old_uploads_basedir . $file;
+                $new_path = $new_uploads_dir . $file;
+                
+                // Dosyayı taşı (aynı dosya yoksa)
+                if (!file_exists($new_path) && is_file($old_path)) {
+                    if (@copy($old_path, $new_path)) {
+                        $migrated_count++;
+                    }
+                }
+            }
+            
+            // Başarı ile migrate edildiyse log'a yaz
+            if ($migrated_count > 0) {
+                error_log('[ATIV] Amator Bitlik: amator-bitlik/ klasöründen ' . $migrated_count . ' dosya bitlik-uploads/ klasörüne migrate edildi');
+            }
+        }
     }
 }
 
@@ -647,9 +721,9 @@ class AmateurTelsizIlanVitrini {
     
    private function enqueue_scripts() {
     // CSS dosyalarını kaydet ve yükle
-    wp_enqueue_style('ativ-base', ATIV_PLUGIN_URL . 'css/base.css', array(), '1.3.6');
-    wp_enqueue_style('ativ-components', ATIV_PLUGIN_URL . 'css/components.css', array('ativ-base'), '1.3.6');
-    wp_enqueue_style('ativ-forms', ATIV_PLUGIN_URL . 'css/forms.css', array('ativ-components'), '1.3.6');
+    wp_enqueue_style('ativ-base', ATIV_PLUGIN_URL . 'css/base.css', array(), '1.3.7');
+    wp_enqueue_style('ativ-components', ATIV_PLUGIN_URL . 'css/components.css', array('ativ-base'), '1.3.7');
+    wp_enqueue_style('ativ-forms', ATIV_PLUGIN_URL . 'css/forms.css', array('ativ-components'), '1.3.7');
     
     // JS dosyalarını kaydet ve yükle (sıralama önemli)
     wp_enqueue_script('ativ-core', ATIV_PLUGIN_URL . 'js/core.js', array('jquery'), '1.2.8', true);
