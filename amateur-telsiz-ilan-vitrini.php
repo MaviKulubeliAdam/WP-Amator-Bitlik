@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Amatör Bitlik
  * Description: Amatör telsiz ekipmanları için ilan panosu yönetim sistemi
- * Version: 1.1.2
+ * Version: 1.1.1
  * Author: TA4AQG - Erkin Mercan
  * Text Domain: amator-bitlik
  * Domain Path: /languages
