@@ -1008,7 +1008,7 @@ class AmateurTelsizIlanVitrini {
         global $wpdb;
         $table_name = $wpdb->prefix . 'amator_ilanlar';
 
-        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+        if ($wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) != $table_name) {
             wp_send_json_success(array());
         }
 
@@ -1664,6 +1664,9 @@ class AmateurTelsizIlanVitrini {
         $result = $wpdb->update($table_name, $update_data, array('id' => $id));
         
         if ($result !== false) {
+            // Cache'i temizle
+            $this->clear_admin_stats_cache();
+            
             // Duruma göre mail gönder
             if ($status === 'approved') {
                 $this->send_notification('listing_approved', array(
@@ -1979,6 +1982,9 @@ class AmateurTelsizIlanVitrini {
     
     if ($result) {
         $listing_id = $wpdb->insert_id;
+        
+        // Cache'i temizle
+        $this->clear_admin_stats_cache();
         
         // Görselleri işle
         $image_files = array();
@@ -2396,6 +2402,9 @@ class AmateurTelsizIlanVitrini {
     $result = $wpdb->update($table_name, $update_data, array('id' => $id));
     
     if ($result !== false) {
+        // Cache'i temizle
+        $this->clear_admin_stats_cache();
+        
         // Reddedilmiş ilan güncellenip tekrar gönderildiyse yöneticiye bildirim gönder
         if ($was_rejected || $was_approved) {
             $admin_email = get_option('admin_email');
@@ -2498,6 +2507,9 @@ class AmateurTelsizIlanVitrini {
     $result = $wpdb->delete($table_name, array('id' => $id));
     
     if ($result) {
+        // Cache'i temizle
+        $this->clear_admin_stats_cache();
+        
         // Kullanıcıya silme bildirimi gönder
         $this->send_notification('listing_deleted', array(
             'title' => stripslashes(htmlspecialchars_decode($existing_listing['title'], ENT_QUOTES)),
@@ -3804,6 +3816,17 @@ EOT
         
         $rate = $this->get_exchange_rate($currency);
         return (float) $price * $rate;
+    }
+    
+    /**
+     * Admin istatistik cache'ini temizle
+     * İlan eklendiğinde, güncellendiğinde veya silindiğinde çağrılmalı
+     */
+    private function clear_admin_stats_cache() {
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'amator_ilanlar';
+        $cache_key = 'ativ_admin_stats_' . md5($table_name);
+        delete_transient($cache_key);
     }
     
     /**
