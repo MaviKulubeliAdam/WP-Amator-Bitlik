@@ -182,6 +182,33 @@ function setupModal() {
     });
   }
   
+  // Fiyat alanı - sadece sayı ve ondalık nokta izin ver
+  const priceInput = document.getElementById('formPrice');
+  if (priceInput) {
+    priceInput.addEventListener('input', (e) => {
+      // Sadece sayılar, nokta ve virgüle izin ver
+      let value = e.target.value;
+      // Virgülü noktaya çevir
+      value = value.replace(',', '.');
+      // Sayı, nokta ve tire dışındaki karakterleri kaldır
+      value = value.replace(/[^0-9.]/g, '');
+      // Birden fazla nokta varsa sadece ilkini tut
+      const parts = value.split('.');
+      if (parts.length > 2) {
+        value = parts[0] + '.' + parts.slice(1).join('');
+      }
+      e.target.value = value;
+    });
+    
+    // Paste olayını da kontrol et
+    priceInput.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const pastedText = (e.clipboardData || window.clipboardData).getData('text');
+      const cleaned = pastedText.replace(',', '.').replace(/[^0-9.]/g, '');
+      document.execCommand('insertText', false, cleaned);
+    });
+  }
+  
   // Ülke kodlarını başlangıçta doldur
   const countryCodeSelect = document.getElementById('formCountryCode');
   if (countryCodeSelect) {
@@ -570,14 +597,15 @@ async function openAddListingModal() {
     // Kullanıcı bilgilerini formdaki alanlara doldur
     populateUserDataFields();
     
-    updatePreview();
-    
     // Şehir listesini yükle
     loadCities();
     
     // Kategori ve durum dropdown'larını ayarla
     setupCategoryDropdown();
     setupConditionDropdown();
+    
+    // Kullanıcı verileri yüklendikten sonra önizlemeyi güncelle
+    updatePreview();
   } catch (error) {
     console.error('Ban kontrolü hatası:', error);
     // Hata olsa bile devam et
@@ -594,10 +622,12 @@ async function openAddListingModal() {
     // Kullanıcı bilgilerini formdaki alanlara doldur
     populateUserDataFields();
     
-    updatePreview();
     loadCities();
     setupCategoryDropdown();
     setupConditionDropdown();
+    
+    // Kullanıcı verileri yüklendikten sonra önizlemeyi güncelle
+    updatePreview();
   }
 }
 
@@ -824,8 +854,9 @@ function updatePreview() {
   }
 
   previewTitle.innerHTML = title || '<span class="preview-empty-state">İlan başlığı...</span>';
-  // Global userCallsign variable'ını kullan (form input'u yok)
-  previewCallsign.innerHTML = userCallsign || '<span class="preview-empty-state">Çağrı işareti...</span>';
+  // userData.callsign'ı öncelikli kullan, yoksa userCallsign global değişkenini kullan
+  const displayCallsign = userData.callsign || userCallsign || '';
+  previewCallsign.innerHTML = displayCallsign || '<span class="preview-empty-state">Çağrı işareti...</span>';
 
   const currencySymbol = getCurrencySymbol(currency);
   const displayPrice = price && parseFloat(price) > 0 ? parseFloat(price) : 0;
